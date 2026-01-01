@@ -1,0 +1,9 @@
+[package]
+name = "neleus-backtest"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+neleus-core-bus = { path = "../core-bus" }
+neleus-core-engine = { path = "../core-engine" }

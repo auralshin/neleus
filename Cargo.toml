@@ -1,0 +1,16 @@
+[workspace]
+members = [
+  "crates/core-types",
+  "crates/core-bus",
+  "crates/core-domain",
+  "crates/core-engine",
+  "crates/backtest",
+  "crates/adapters-hyperliquid",
+  "crates/adapters-lighter",
+  "crates/pybridge",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+license = "Apache-2.0"
