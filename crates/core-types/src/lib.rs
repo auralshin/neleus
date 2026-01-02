@@ -1,21 +1,13 @@
-//! Core types for the Neleus trading framework.
-//!
-//! This module defines venue-agnostic domain types including identifiers,
-//! fixed-point arithmetic, timestamps, and serialization primitives.
-
+use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::ops::{Add, Div, Mul, Neg, Sub};
 
-// =============================================================================
-// Venue Identifiers
-// =============================================================================
-
-/// Supported trading venues
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Venue {
     Hyperliquid,
     Lighter,
-    /// For backtest simulation
+
     Simulated,
 }
 
@@ -29,8 +21,8 @@ impl fmt::Display for Venue {
     }
 }
 
-/// Instrument types
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum InstrumentType {
     Perp,
     Spot,
@@ -45,8 +37,7 @@ impl fmt::Display for InstrumentType {
     }
 }
 
-/// Unique identifier for a tradeable instrument
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct InstrumentId {
     pub venue: Venue,
     pub symbol: String,
@@ -62,7 +53,6 @@ impl InstrumentId {
         }
     }
 
-    /// Parse from canonical string format: "VENUE:SYMBOL.TYPE"
     pub fn parse(s: &str) -> Option<Self> {
         let parts: Vec<&str> = s.split(':').collect();
         if parts.len() != 2 {
@@ -97,12 +87,9 @@ impl fmt::Display for InstrumentId {
     }
 }
 
-// =============================================================================
-// Timestamps (critical for determinism)
-// =============================================================================
-
-/// Nanosecond-precision UNIX timestamp
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
+)]
 pub struct UnixNanos(pub u64);
 
 impl UnixNanos {
@@ -124,6 +111,14 @@ impl UnixNanos {
         Self(us * 1_000)
     }
 
+    pub fn from_nanos(ns: u64) -> Self {
+        Self(ns)
+    }
+
+    pub fn from_secs(secs: u64) -> Self {
+        Self(secs * 1_000_000_000)
+    }
+
     pub fn as_millis(&self) -> u64 {
         self.0 / 1_000_000
     }
@@ -134,6 +129,10 @@ impl UnixNanos {
 
     pub fn as_secs(&self) -> u64 {
         self.0 / 1_000_000_000
+    }
+
+    pub fn as_nanos(&self) -> u128 {
+        self.0 as u128
     }
 }
 
@@ -151,14 +150,12 @@ impl Sub for UnixNanos {
     }
 }
 
-/// Multi-timestamp struct for event tracing
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct EventTimestamps {
-    /// When the venue says it happened (exchange timestamp)
     pub ts_event: UnixNanos,
-    /// When we received the event
+
     pub ts_recv: UnixNanos,
-    /// When core processed the event
+
     pub ts_proc: UnixNanos,
 }
 
@@ -180,17 +177,10 @@ impl EventTimestamps {
     }
 }
 
-// =============================================================================
-// Fixed-Point Arithmetic (no floats for money!)
-// =============================================================================
-
-/// Fixed-point decimal representation with configurable precision
-/// Stores value as: actual_value = value / 10^scale
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub struct FixedPoint {
-    /// The scaled integer value
     pub value: i64,
-    /// Decimal places (e.g., scale=8 means 8 decimal places)
+
     pub scale: u8,
 }
 
@@ -201,7 +191,6 @@ impl FixedPoint {
         Self { value, scale }
     }
 
-    /// Create from a float (use sparingly, prefer string parsing)
     pub fn from_f64(f: f64, scale: u8) -> Self {
         let multiplier = 10_i64.pow(scale as u32);
         Self {
@@ -210,7 +199,6 @@ impl FixedPoint {
         }
     }
 
-    /// Parse from string (preferred for precision)
     pub fn from_str(s: &str, scale: u8) -> Option<Self> {
         let parts: Vec<&str> = s.split('.').collect();
         let multiplier = 10_i64.pow(scale as u32);
@@ -229,7 +217,6 @@ impl FixedPoint {
                 let frac_str = parts[1];
                 let frac_scale = frac_str.len() as u32;
 
-                // Pad or truncate fractional part to target scale
                 let frac_value: i64 = if frac_scale <= scale as u32 {
                     let padding = 10_i64.pow(scale as u32 - frac_scale);
                     frac_str.parse::<i64>().ok()? * padding
@@ -250,27 +237,22 @@ impl FixedPoint {
         }
     }
 
-    /// Convert to f64 (for display/logging only)
     pub fn to_f64(&self) -> f64 {
         self.value as f64 / 10_f64.powi(self.scale as i32)
     }
 
-    /// Check if zero
     pub fn is_zero(&self) -> bool {
         self.value == 0
     }
 
-    /// Check if positive
     pub fn is_positive(&self) -> bool {
         self.value > 0
     }
 
-    /// Check if negative
     pub fn is_negative(&self) -> bool {
         self.value < 0
     }
 
-    /// Absolute value
     pub fn abs(&self) -> Self {
         Self {
             value: self.value.abs(),
@@ -278,7 +260,6 @@ impl FixedPoint {
         }
     }
 
-    /// Rescale to a different precision
     pub fn rescale(&self, new_scale: u8) -> Self {
         if new_scale == self.scale {
             return *self;
@@ -338,7 +319,6 @@ impl Sub for FixedPoint {
 impl Mul for FixedPoint {
     type Output = Self;
     fn mul(self, rhs: Self) -> Self::Output {
-        // Multiply and adjust scale
         let new_value = self.value * rhs.value / 10_i64.pow(self.scale as u32);
         Self {
             value: new_value,
@@ -387,12 +367,9 @@ impl Ord for FixedPoint {
     }
 }
 
-// =============================================================================
-// Money Types (Price, Quantity, Money)
-// =============================================================================
-
-/// Price type (newtype over FixedPoint)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, PartialOrd, Ord)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, PartialOrd, Ord, Serialize, Deserialize,
+)]
 pub struct Price(pub FixedPoint);
 
 impl Price {
@@ -429,8 +406,9 @@ impl fmt::Display for Price {
     }
 }
 
-/// Quantity type (newtype over FixedPoint)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, PartialOrd, Ord)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, PartialOrd, Ord, Serialize, Deserialize,
+)]
 pub struct Quantity(pub FixedPoint);
 
 impl Quantity {
@@ -492,8 +470,7 @@ impl fmt::Display for Quantity {
     }
 }
 
-/// Money type for account balances, PnL, etc.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub struct Money {
     pub amount: FixedPoint,
     pub currency: Currency,
@@ -522,8 +499,7 @@ impl fmt::Display for Money {
     }
 }
 
-/// Supported currencies
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub enum Currency {
     #[default]
     USD,
@@ -545,14 +521,10 @@ impl fmt::Display for Currency {
     }
 }
 
-// =============================================================================
-// ID Types (using macro for consistency)
-// =============================================================================
-
 macro_rules! define_id {
     ($name:ident, $doc:expr) => {
         #[doc = $doc]
-        #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+        #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
         pub struct $name(pub String);
 
         impl $name {
@@ -564,7 +536,6 @@ macro_rules! define_id {
                 &self.0
             }
 
-            /// Generate a new unique ID using ULID
             pub fn generate() -> Self {
                 use std::time::{SystemTime, UNIX_EPOCH};
                 let timestamp = SystemTime::now()
@@ -596,14 +567,13 @@ macro_rules! define_id {
     };
 }
 
-// Simple pseudo-random generator (no external deps)
 fn rand_simple() -> u64 {
     use std::time::{SystemTime, UNIX_EPOCH};
     let seed = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos() as u64;
-    // xorshift
+
     let mut x = seed;
     x ^= x << 13;
     x ^= x >> 7;
@@ -619,12 +589,8 @@ define_id!(PositionId, "Position identifier");
 define_id!(AccountId, "Account identifier");
 define_id!(StrategyId, "Strategy identifier");
 
-// =============================================================================
-// Order Side and Time-in-Force
-// =============================================================================
-
-/// Order side
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum OrderSide {
     Buy,
     Sell,
@@ -638,7 +604,6 @@ impl OrderSide {
         }
     }
 
-    /// Sign for position calculation (+1 for buy, -1 for sell)
     pub fn sign(&self) -> i64 {
         match self {
             OrderSide::Buy => 1,
@@ -656,15 +621,14 @@ impl fmt::Display for OrderSide {
     }
 }
 
-/// Time-in-force for orders
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub enum TimeInForce {
     #[default]
-    GTC, // Good Till Cancel
-    IOC, // Immediate Or Cancel
-    FOK, // Fill Or Kill
-    GTD, // Good Till Date
-    DAY, // Day order
+    GTC,
+    IOC,
+    FOK,
+    GTD,
+    DAY,
 }
 
 impl fmt::Display for TimeInForce {
@@ -679,12 +643,9 @@ impl fmt::Display for TimeInForce {
     }
 }
 
-// =============================================================================
-// Sequence Numbers (for ordering)
-// =============================================================================
-
-/// Monotonically increasing sequence number for event ordering
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
+)]
 pub struct SequenceNumber(pub u64);
 
 impl SequenceNumber {
@@ -696,10 +657,6 @@ impl SequenceNumber {
         Self(self.0 + 1)
     }
 }
-
-// =============================================================================
-// Tests
-// =============================================================================
 
 #[cfg(test)]
 mod tests {
@@ -717,8 +674,8 @@ mod tests {
 
     #[test]
     fn test_fixed_point_arithmetic() {
-        let a = FixedPoint::new(100_00000000, 8); // 100.0
-        let b = FixedPoint::new(50_00000000, 8); // 50.0
+        let a = FixedPoint::new(100_00000000, 8);
+        let b = FixedPoint::new(50_00000000, 8);
 
         let sum = a + b;
         assert_eq!(sum.value, 150_00000000);
