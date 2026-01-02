@@ -6,3 +6,5 @@ license.workspace = true
 
 [dependencies]
 neleus-core-types = { path = "../core-types" }
+serde = { workspace = true }
+thiserror = { workspace = true }
