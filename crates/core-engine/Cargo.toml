@@ -5,5 +5,9 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+neleus-core-types = { path = "../core-types" }
 neleus-core-bus = { path = "../core-bus" }
 neleus-core-domain = { path = "../core-domain" }
+serde = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }
