@@ -5,5 +5,22 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+neleus-core-types = { path = "../core-types" }
 neleus-core-bus = { path = "../core-bus" }
+neleus-core-domain = { path = "../core-domain" }
 neleus-core-engine = { path = "../core-engine" }
+neleus-adapters-hyperliquid = { path = "../adapters-hyperliquid", optional = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+csv = { workspace = true }
+parquet = { workspace = true }
+arrow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+rand = { workspace = true }
+chrono = { workspace = true }
+tokio = { workspace = true, optional = true }
+
+[features]
+default = []
+hyperliquid = ["neleus-adapters-hyperliquid", "tokio"]
