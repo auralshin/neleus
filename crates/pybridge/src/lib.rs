@@ -803,6 +803,10 @@ impl PyStrategyContext {
     pub fn total_realized_pnl(&self) -> f64 {
         self.positions.values().map(|p| p.realized_pnl).sum()
     }
+
+    pub fn drain_order_requests(&mut self) -> Vec<PyOrderRequest> {
+        std::mem::take(&mut self.order_requests)
+    }
 }
 
 impl PyStrategyContext {
