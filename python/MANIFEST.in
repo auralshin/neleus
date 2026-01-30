@@ -1,0 +1,11 @@
+# Include package data
+include README.md
+include LICENSE
+recursive-include neleus *.py
+recursive-include neleus/ui *.html *.css *.js
+recursive-include neleus/cli *.py
+
+# Exclude unnecessary files
+global-exclude __pycache__
+global-exclude *.py[co]
+global-exclude .DS_Store

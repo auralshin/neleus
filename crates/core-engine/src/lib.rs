@@ -1,8 +1,19 @@
-use neleus_core_bus::{Bus, BusConfig, InMemoryBus, Message, MessageKind, Topic};
+use neleus_core_bus::{Bus, BusConfig, EventSink, InMemoryBus, Message, MessageKind, Topic};
 use neleus_core_types::{InstrumentId, OrderId, SequenceNumber, StrategyId, UnixNanos, Venue};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
+
+// Export new modules
+pub mod advanced_risk;
+pub mod circuit_breaker;
+pub mod execution;
+pub mod portfolio;
+
+pub use advanced_risk::*;
+pub use circuit_breaker::*;
+pub use execution::*;
+pub use portfolio::*;
 
 #[derive(Debug, Clone)]
 pub struct EngineConfig {
@@ -13,6 +24,15 @@ pub struct EngineConfig {
     pub enable_event_log: bool,
 
     pub clock_mode: ClockMode,
+
+    /// Capital management configuration
+    pub capital_config: CapitalConfig,
+
+    /// Position management configuration
+    pub position_config: PositionManagementConfig,
+
+    /// Leverage and margin configuration
+    pub leverage_config: LeverageConfig,
 }
 
 impl Default for EngineConfig {
@@ -22,6 +42,9 @@ impl Default for EngineConfig {
             max_events_per_tick: 1000,
             enable_event_log: true,
             clock_mode: ClockMode::Live,
+            capital_config: CapitalConfig::default(),
+            position_config: PositionManagementConfig::default(),
+            leverage_config: LeverageConfig::default(),
         }
     }
 }
@@ -31,6 +54,227 @@ pub enum ClockMode {
     Live,
 
     Simulated,
+}
+
+/// Capital management configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CapitalConfig {
+    /// Initial capital (quote currency)
+    pub initial_capital: f64,
+
+    /// Unit spend per trade (for fixed allocation)
+    pub unit_spend: f64,
+
+    /// Whether to lock profits (don't risk realized gains)
+    pub lock_profits: bool,
+
+    /// Automatically redeploy profits into new positions
+    pub auto_redeploy_profits: bool,
+
+    /// Percentage of profits to redeploy (0.0 - 1.0)
+    pub profit_redeploy_percentage: f64,
+
+    /// Minimum capital threshold before redeployment
+    pub min_capital_for_redeploy: f64,
+
+    /// Maximum capital allocation per position (as fraction of total)
+    pub max_capital_per_position: f64,
+
+    /// Reserve capital percentage (keep uninvested)
+    pub reserve_capital_pct: f64,
+}
+
+impl Default for CapitalConfig {
+    fn default() -> Self {
+        Self {
+            initial_capital: 100000.0,
+            unit_spend: 1000.0,
+            lock_profits: false,
+            auto_redeploy_profits: true,
+            profit_redeploy_percentage: 0.5,
+            min_capital_for_redeploy: 100.0,
+            max_capital_per_position: 0.1,
+            reserve_capital_pct: 0.05,
+        }
+    }
+}
+
+/// Position management configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PositionManagementConfig {
+    /// Maximum number of open positions
+    pub max_open_positions: usize,
+
+    /// Maximum positions per instrument
+    pub max_positions_per_instrument: usize,
+
+    /// Maximum positions per venue
+    pub max_positions_per_venue: HashMap<Venue, usize>,
+
+    /// Holding period constraints
+    pub holding_period: HoldingPeriodConfig,
+
+    /// Allow pyramiding (adding to winning positions)
+    pub allow_pyramiding: bool,
+
+    /// Maximum pyramid levels
+    pub max_pyramid_levels: usize,
+
+    /// Pyramid scale factor (reduce size on each add)
+    pub pyramid_scale_factor: f64,
+
+    /// Enable spread trading
+    pub enable_spread_trading: bool,
+
+    /// Spread trading configuration
+    pub spread_config: SpreadTradingConfig,
+
+    /// Close all positions at end of session
+    pub close_at_session_end: bool,
+
+    /// Session end time (in seconds from midnight UTC)
+    pub session_end_time: Option<u32>,
+}
+
+impl Default for PositionManagementConfig {
+    fn default() -> Self {
+        Self {
+            max_open_positions: 10,
+            max_positions_per_instrument: 1,
+            max_positions_per_venue: HashMap::new(),
+            holding_period: HoldingPeriodConfig::default(),
+            allow_pyramiding: false,
+            max_pyramid_levels: 3,
+            pyramid_scale_factor: 0.5,
+            enable_spread_trading: false,
+            spread_config: SpreadTradingConfig::default(),
+            close_at_session_end: false,
+            session_end_time: None,
+        }
+    }
+}
+
+/// Holding period configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HoldingPeriodConfig {
+    /// Enable holding period constraints
+    pub enabled: bool,
+
+    /// Minimum holding period in seconds
+    pub min_holding_seconds: u64,
+
+    /// Maximum holding period in seconds (0 = unlimited)
+    pub max_holding_seconds: u64,
+
+    /// Force close at max holding period
+    pub force_close_at_max: bool,
+
+    /// Minimum holding period for profit-taking
+    pub min_holding_for_profit: u64,
+}
+
+impl Default for HoldingPeriodConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            min_holding_seconds: 60,
+            max_holding_seconds: 86400,
+            force_close_at_max: false,
+            min_holding_for_profit: 0,
+        }
+    }
+}
+
+/// Spread trading configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SpreadTradingConfig {
+    /// Enable spread trading
+    pub enabled: bool,
+
+    /// Spread pairs (leg1, leg2, ratio)
+    pub pairs: Vec<(InstrumentId, InstrumentId, f64)>,
+
+    /// Hedge ratio calculation method
+    pub hedge_ratio_method: HedgeRatioMethod,
+
+    /// Rebalance threshold (as fraction of hedge ratio)
+    pub rebalance_threshold: f64,
+
+    /// Maximum leg imbalance percentage
+    pub max_leg_imbalance: f64,
+}
+
+impl Default for SpreadTradingConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            pairs: Vec::new(),
+            hedge_ratio_method: HedgeRatioMethod::Fixed,
+            rebalance_threshold: 0.05,
+            max_leg_imbalance: 0.1,
+        }
+    }
+}
+
+/// Hedge ratio calculation method for spread trading
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HedgeRatioMethod {
+    /// Fixed ratio (specified in config)
+    Fixed,
+    /// Price ratio (current prices)
+    PriceRatio,
+    /// Beta-based (regression)
+    Beta,
+    /// Volatility-adjusted
+    VolatilityAdjusted,
+}
+
+/// Leverage and margin configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LeverageConfig {
+    /// Enable leverage trading
+    pub enabled: bool,
+
+    /// Maximum leverage multiplier
+    pub max_leverage: f64,
+
+    /// Maintenance margin percentage
+    pub maintenance_margin_pct: f64,
+
+    /// Initial margin percentage
+    pub initial_margin_pct: f64,
+
+    /// Borrow rate (annual percentage)
+    pub borrow_rate_annual: f64,
+
+    /// Funding interval in seconds (for perpetual futures)
+    pub funding_interval_seconds: u64,
+
+    /// Liquidation buffer (close before actual liquidation)
+    pub liquidation_buffer_pct: f64,
+
+    /// Margin call threshold (as percentage of maintenance margin)
+    pub margin_call_threshold: f64,
+
+    /// Auto-reduce positions on margin call
+    pub auto_reduce_on_margin_call: bool,
+}
+
+impl Default for LeverageConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            max_leverage: 1.0,
+            maintenance_margin_pct: 0.05,
+            initial_margin_pct: 0.10,
+            borrow_rate_annual: 0.05,
+            funding_interval_seconds: 28800,
+            liquidation_buffer_pct: 0.02,
+            margin_call_threshold: 1.2,
+            auto_reduce_on_margin_call: true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -45,6 +289,8 @@ pub enum EngineState {
     Stopping,
 
     Stopped,
+
+    Paused,
 
     Faulted,
 }
@@ -229,7 +475,7 @@ impl StrategyContext {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum StrategyCommand {
     SubmitOrder {
         order_id: OrderId,
@@ -249,7 +495,7 @@ pub enum StrategyCommand {
     },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum DataSubscription {
     Trades {
         instrument_id: InstrumentId,
@@ -288,7 +534,7 @@ pub enum OrderType {
     Limit,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum MarketDataEvent {
     Trade {
         instrument_id: InstrumentId,
@@ -313,7 +559,7 @@ pub enum MarketDataEvent {
     },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TradingEvent {
     OrderSubmitted {
         order_id: OrderId,
@@ -368,6 +614,18 @@ pub struct Engine<B: Bus> {
 
     telemetry: Option<Arc<dyn TelemetrySink>>,
 
+    /// Optional risk manager for pre-trade risk checks
+    risk_manager: Option<DynamicLimitManager>,
+
+    /// Track current daily P&L for risk checks
+    current_daily_pnl: f64,
+
+    /// Track current leverage for risk checks
+    current_leverage: f64,
+
+    /// Position tracking engine for position limits enforcement
+    position_engine: PositionEngine,
+
     processed_ticks: u64,
 
     processed_messages: u64,
@@ -390,6 +648,36 @@ impl Engine<InMemoryBus> {
             timers: HashMap::new(),
             subscriptions: Vec::new(),
             telemetry: None,
+            risk_manager: None,
+            current_daily_pnl: 0.0,
+            current_leverage: 0.0,
+            position_engine: PositionEngine::new(),
+            processed_ticks: 0,
+            processed_messages: 0,
+            last_tick_duration_micros: 0,
+        }
+    }
+
+    /// Create engine with persistence via EventSink
+    pub fn with_event_sink(config: EngineConfig, event_sink: Arc<dyn EventSink>) -> Self {
+        let clock_mode = config.clock_mode;
+        let mut bus_config = BusConfig::default();
+        bus_config.enable_logging = config.enable_event_log;
+        bus_config.event_sink = Some(event_sink);
+        Self {
+            config,
+            bus: InMemoryBus::with_config(bus_config),
+            clock: Clock::new(clock_mode),
+            state: EngineState::Idle,
+            sequence: SequenceNumber::default(),
+            strategies: Vec::new(),
+            timers: HashMap::new(),
+            subscriptions: Vec::new(),
+            telemetry: None,
+            risk_manager: None,
+            current_daily_pnl: 0.0,
+            current_leverage: 0.0,
+            position_engine: PositionEngine::new(),
             processed_ticks: 0,
             processed_messages: 0,
             last_tick_duration_micros: 0,
@@ -410,10 +698,39 @@ impl<B: Bus> Engine<B> {
             timers: HashMap::new(),
             subscriptions: Vec::new(),
             telemetry: None,
+            risk_manager: None,
+            current_daily_pnl: 0.0,
+            current_leverage: 0.0,
+            position_engine: PositionEngine::new(),
             processed_ticks: 0,
             processed_messages: 0,
             last_tick_duration_micros: 0,
         }
+    }
+
+    /// Get position engine reference for external position queries
+    pub fn position_engine(&self) -> &PositionEngine {
+        &self.position_engine
+    }
+
+    /// Get mutable position engine reference
+    pub fn position_engine_mut(&mut self) -> &mut PositionEngine {
+        &mut self.position_engine
+    }
+
+    /// Set risk manager for pre-trade risk checks
+    pub fn set_risk_manager(&mut self, config: DynamicLimitsConfig, initial_equity: f64) {
+        self.risk_manager = Some(DynamicLimitManager::new(config, initial_equity));
+    }
+
+    /// Update daily P&L for risk checks
+    pub fn update_daily_pnl(&mut self, pnl: f64) {
+        self.current_daily_pnl = pnl;
+    }
+
+    /// Update current leverage for risk checks
+    pub fn update_leverage(&mut self, leverage: f64) {
+        self.current_leverage = leverage;
     }
 
     pub fn attach_telemetry(&mut self, telemetry: Arc<dyn TelemetrySink>) {
@@ -518,6 +835,7 @@ impl<B: Bus> Engine<B> {
         processed
     }
 
+    #[inline]
     fn emit_telemetry(&self) {
         if let Some(telemetry) = &self.telemetry {
             let snapshot = EngineSnapshot {
@@ -616,19 +934,223 @@ impl<B: Bus> Engine<B> {
         all_commands
     }
 
+    #[inline]
     fn process_message(&mut self, message: Message) {
         self.sequence = self.sequence.next();
+        self.processed_messages += 1;
 
         match message.kind {
-            MessageKind::Data => {}
-            MessageKind::Event => {}
-            MessageKind::Command => {}
-            MessageKind::System => {}
+            MessageKind::Data => {
+                // Try to parse as MarketDataEvent
+                if let Ok(payload_str) = std::str::from_utf8(&message.payload) {
+                    if let Ok(event) = serde_json::from_str::<MarketDataEvent>(payload_str) {
+                        let commands = self.on_market_data(event);
+                        self.process_strategy_commands(commands);
+                    } else {
+                        tracing::trace!("Received non-MarketDataEvent data message");
+                    }
+                }
+            }
+            MessageKind::Event => {
+                // Try to parse as TradingEvent
+                if let Ok(payload_str) = std::str::from_utf8(&message.payload) {
+                    if let Ok(event) = serde_json::from_str::<TradingEvent>(payload_str) {
+                        // Update internal position tracking for fills
+                        if let TradingEvent::OrderFilled {
+                            order_id: _,
+                            fill_price,
+                            fill_quantity,
+                            remaining_quantity: _,
+                            ts: _,
+                        } = &event
+                        {
+                            // Track P&L from fills
+                            let trade_value = fill_price * fill_quantity;
+                            tracing::debug!(trade_value = trade_value, "Processed order fill");
+                        }
+
+                        let commands = self.on_trading_event(&event);
+                        self.process_strategy_commands(commands);
+                    } else {
+                        tracing::trace!("Received non-TradingEvent event message");
+                    }
+                }
+            }
+            MessageKind::Command => {
+                // Commands from external sources - parse and execute
+                if let Ok(payload_str) = std::str::from_utf8(&message.payload) {
+                    if let Ok(cmd) = serde_json::from_str::<StrategyCommand>(payload_str) {
+                        self.process_strategy_commands(vec![cmd]);
+                    } else {
+                        tracing::trace!("Received unparseable command message");
+                    }
+                }
+            }
+            MessageKind::System => {
+                // System messages for lifecycle management
+                if let Ok(payload_str) = std::str::from_utf8(&message.payload) {
+                    tracing::info!(system_message = payload_str, "System message received");
+                    // Handle specific system commands
+                    if payload_str.contains("shutdown") {
+                        self.stop();
+                    } else if payload_str.contains("pause") {
+                        self.state = EngineState::Paused;
+                    } else if payload_str.contains("resume") && self.state == EngineState::Paused {
+                        self.state = EngineState::Running;
+                    }
+                }
+            }
         }
     }
 
     fn process_strategy_commands(&mut self, commands: Vec<StrategyCommand>) {
         for cmd in commands {
+            // Clone and potentially modify the command
+            let mut cmd = cmd;
+
+            // Check position and risk limits for order submissions
+            if let StrategyCommand::SubmitOrder {
+                ref order_id,
+                ref instrument_id,
+                ref mut quantity,
+                ref price,
+                ref side,
+                ..
+            } = cmd
+            {
+                // === Position Management Checks ===
+                let position_config = &self.config.position_config;
+
+                // Check max open positions
+                let current_position_count = self.position_engine.position_count();
+                let existing_position = self.position_engine.get_position(instrument_id);
+                let is_new_position = existing_position.map_or(true, |p| p.is_flat());
+
+                if is_new_position && current_position_count >= position_config.max_open_positions {
+                    tracing::error!(
+                        order_id = %order_id,
+                        instrument = %instrument_id,
+                        current = current_position_count,
+                        max = position_config.max_open_positions,
+                        "Position limit: max open positions reached"
+                    );
+                    let reject_event = TradingEvent::OrderRejected {
+                        order_id: order_id.clone(),
+                        reason: format!(
+                            "Max open positions limit reached ({}/{})",
+                            current_position_count, position_config.max_open_positions
+                        ),
+                        ts: self.clock.now(),
+                    };
+                    let payload = format!("{:?}", reject_event).into_bytes();
+                    let msg = Message::event(Topic::order_events(), payload);
+                    self.bus.publish(msg);
+                    continue;
+                }
+
+                // Check max positions per venue
+                if let Some(&max_venue_positions) = position_config
+                    .max_positions_per_venue
+                    .get(&instrument_id.venue)
+                {
+                    let venue_count = self.position_engine.positions_by_venue(instrument_id.venue);
+                    if is_new_position && venue_count >= max_venue_positions {
+                        tracing::error!(
+                            order_id = %order_id,
+                            venue = ?instrument_id.venue,
+                            current = venue_count,
+                            max = max_venue_positions,
+                            "Position limit: max positions per venue reached"
+                        );
+                        let reject_event = TradingEvent::OrderRejected {
+                            order_id: order_id.clone(),
+                            reason: format!(
+                                "Max positions for venue {:?} reached ({}/{})",
+                                instrument_id.venue, venue_count, max_venue_positions
+                            ),
+                            ts: self.clock.now(),
+                        };
+                        let payload = format!("{:?}", reject_event).into_bytes();
+                        let msg = Message::event(Topic::order_events(), payload);
+                        self.bus.publish(msg);
+                        continue;
+                    }
+                }
+
+                // Check pyramiding limits (adding to winning position)
+                if !is_new_position && !position_config.allow_pyramiding {
+                    if let Some(pos) = existing_position {
+                        let is_adding_to_position = (pos.quantity > 0.0 && *side == OrderSide::Buy)
+                            || (pos.quantity < 0.0 && *side == OrderSide::Sell);
+
+                        if is_adding_to_position {
+                            tracing::error!(
+                                order_id = %order_id,
+                                instrument = %instrument_id,
+                                "Position limit: pyramiding not allowed"
+                            );
+                            let reject_event = TradingEvent::OrderRejected {
+                                order_id: order_id.clone(),
+                                reason: "Pyramiding (adding to position) not allowed".to_string(),
+                                ts: self.clock.now(),
+                            };
+                            let payload = format!("{:?}", reject_event).into_bytes();
+                            let msg = Message::event(Topic::order_events(), payload);
+                            self.bus.publish(msg);
+                            continue;
+                        }
+                    }
+                }
+
+                // === Risk Manager Checks ===
+                if let Some(risk_manager) = &self.risk_manager {
+                    // Calculate notional value (use price if limit order, or estimate for market)
+                    let notional = *quantity * price.unwrap_or(1.0);
+
+                    match risk_manager.check_order(
+                        notional,
+                        self.current_daily_pnl,
+                        self.current_leverage,
+                    ) {
+                        RiskLimitCheck::Allowed => {
+                            // Order allowed, proceed
+                        }
+                        RiskLimitCheck::ReduceSize(factor) => {
+                            // Actually reduce the order size
+                            let original_qty = *quantity;
+                            *quantity = original_qty * factor;
+                            tracing::warn!(
+                                order_id = %order_id,
+                                instrument = %instrument_id,
+                                original_qty = original_qty,
+                                reduced_qty = *quantity,
+                                factor = factor,
+                                "Risk limit: order size reduced"
+                            );
+                        }
+                        RiskLimitCheck::Rejected(reason) => {
+                            // Order rejected by risk limits
+                            tracing::error!(
+                                order_id = %order_id,
+                                instrument = %instrument_id,
+                                reason = %reason,
+                                "Risk limit: order rejected"
+                            );
+                            // Publish rejection event and skip this order
+                            let reject_event = TradingEvent::OrderRejected {
+                                order_id: order_id.clone(),
+                                reason: format!("Risk limit: {}", reason),
+                                ts: self.clock.now(),
+                            };
+                            let payload = format!("{:?}", reject_event).into_bytes();
+                            let msg = Message::event(Topic::order_events(), payload);
+                            self.bus.publish(msg);
+                            continue;
+                        }
+                    }
+                }
+            }
+
             let payload = format!("{:?}", cmd).into_bytes();
             let msg = Message::command(Topic::commands(), payload);
             self.bus.publish(msg);
@@ -1151,11 +1673,299 @@ impl PositionEngine {
             .filter_map(|(id, p)| self.last_prices.get(id).map(|&price| p.notional(price)))
             .sum()
     }
+
+    /// Count of currently open (non-flat) positions
+    pub fn position_count(&self) -> usize {
+        self.positions.values().filter(|p| !p.is_flat()).count()
+    }
+
+    /// Count of open positions for a specific venue
+    pub fn positions_by_venue(&self, venue: Venue) -> usize {
+        self.positions
+            .iter()
+            .filter(|(id, p)| id.venue == venue && !p.is_flat())
+            .count()
+    }
+
+    /// Get all instruments with open positions
+    pub fn open_instrument_ids(&self) -> Vec<InstrumentId> {
+        self.positions
+            .iter()
+            .filter(|(_, p)| !p.is_flat())
+            .map(|(id, _)| id.clone())
+            .collect()
+    }
 }
 
 impl Default for PositionEngine {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Position sizing method
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PositionSizingMethod {
+    /// Fixed position size (constant quantity)
+    Fixed,
+    /// Fixed notional value (constant dollar amount)
+    FixedNotional,
+    /// Percentage of portfolio equity
+    PercentEquity,
+    /// Kelly Criterion based sizing
+    Kelly,
+    /// Risk-based sizing (based on distance to stop loss)
+    RiskBased,
+    /// Volatility-based sizing (ATR or other volatility measures)
+    VolatilityBased,
+}
+
+/// Position sizing configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PositionSizingConfig {
+    /// Position sizing method to use
+    pub method: PositionSizingMethod,
+
+    /// Fixed size (for Fixed method)
+    pub fixed_size: f64,
+
+    /// Fixed notional value (for FixedNotional method)
+    pub fixed_notional: f64,
+
+    /// Percentage of equity to risk per trade (0.0 - 1.0)
+    pub equity_percentage: f64,
+
+    /// Kelly fraction multiplier (typically 0.1 to 0.5 for fractional Kelly)
+    pub kelly_fraction: f64,
+
+    /// Risk amount per trade (for RiskBased method)
+    pub risk_per_trade: f64,
+
+    /// ATR multiplier for volatility-based sizing
+    pub atr_multiplier: f64,
+
+    /// Target volatility for portfolio (annualized)
+    pub target_volatility: f64,
+
+    /// Minimum position size
+    pub min_size: f64,
+
+    /// Maximum position size
+    pub max_size: f64,
+
+    /// Round to tick size
+    pub round_to_tick: bool,
+}
+
+impl Default for PositionSizingConfig {
+    fn default() -> Self {
+        Self {
+            method: PositionSizingMethod::Fixed,
+            fixed_size: 1.0,
+            fixed_notional: 10000.0,
+            equity_percentage: 0.02, // 2% per trade
+            kelly_fraction: 0.25,    // Quarter Kelly
+            risk_per_trade: 100.0,
+            atr_multiplier: 1.5,
+            target_volatility: 0.15, // 15% annualized
+            min_size: 0.01,
+            max_size: 1000.0,
+            round_to_tick: true,
+        }
+    }
+}
+
+/// Stop loss type
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StopLossType {
+    /// No stop loss
+    None,
+    /// Fixed price distance from entry
+    Fixed,
+    /// Percentage distance from entry
+    Percentage,
+    /// ATR-based stop loss
+    ATR,
+    /// Trailing stop loss (fixed distance)
+    Trailing,
+    /// Trailing stop loss (percentage-based)
+    TrailingPercentage,
+    /// Trailing stop loss (ATR-based)
+    TrailingATR,
+    /// Time-based stop loss (exit after X bars/seconds)
+    TimeBased,
+    /// Chandelier stop (highest high - ATR * multiplier)
+    Chandelier,
+    /// Parabolic SAR
+    ParabolicSAR,
+}
+
+/// Stop loss configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StopLossConfig {
+    /// Stop loss type
+    pub stop_type: StopLossType,
+
+    /// Enable stop loss
+    pub enabled: bool,
+
+    /// Fixed price distance (for Fixed type)
+    pub fixed_distance: f64,
+
+    /// Percentage distance (0.0 - 1.0, for Percentage type)
+    pub percentage: f64,
+
+    /// ATR multiplier (for ATR-based stops)
+    pub atr_multiplier: f64,
+
+    /// ATR period (for ATR-based stops)
+    pub atr_period: usize,
+
+    /// Trailing distance (for Trailing type)
+    pub trailing_distance: f64,
+
+    /// Trailing percentage (for TrailingPercentage type)
+    pub trailing_percentage: f64,
+
+    /// Time limit in seconds (for TimeBased type)
+    pub time_limit_seconds: u64,
+
+    /// Chandelier multiplier (for Chandelier type)
+    pub chandelier_multiplier: f64,
+
+    /// Chandelier lookback period
+    pub chandelier_period: usize,
+
+    /// Use limit orders for stops (vs market orders)
+    pub use_limit_orders: bool,
+
+    /// Limit order offset (if using limit orders)
+    pub limit_order_offset_pct: f64,
+
+    /// Move stop to breakeven after X% profit
+    pub breakeven_after_profit_pct: Option<f64>,
+
+    /// Lock in profit percentage after reaching target
+    pub lock_profit_pct: Option<f64>,
+}
+
+impl Default for StopLossConfig {
+    fn default() -> Self {
+        Self {
+            stop_type: StopLossType::Percentage,
+            enabled: false,
+            fixed_distance: 10.0,
+            percentage: 0.02, // 2% stop loss
+            atr_multiplier: 2.0,
+            atr_period: 14,
+            trailing_distance: 10.0,
+            trailing_percentage: 0.03,
+            time_limit_seconds: 3600,
+            chandelier_multiplier: 3.0,
+            chandelier_period: 22,
+            use_limit_orders: false,
+            limit_order_offset_pct: 0.001, // 0.1% slippage buffer
+            breakeven_after_profit_pct: Some(0.01), // Move to breakeven after 1% profit
+            lock_profit_pct: Some(0.5),    // Lock in 50% of profit
+        }
+    }
+}
+
+/// Take profit type
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TakeProfitType {
+    /// No take profit
+    None,
+    /// Fixed price target
+    Fixed,
+    /// Percentage target from entry
+    Percentage,
+    /// Risk-reward ratio based (e.g., 2:1, 3:1)
+    RiskReward,
+    /// ATR-based target
+    ATR,
+    /// Fibonacci levels
+    Fibonacci,
+    /// Multiple partial take profits
+    Partial,
+    /// Trailing take profit (lock in profits as price moves favorably)
+    Trailing,
+}
+
+/// Partial take profit level
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PartialTakeProfitLevel {
+    /// Percentage of position to close (0.0 - 1.0)
+    pub size_pct: f64,
+
+    /// Target distance (interpretation depends on method)
+    pub target: f64,
+}
+
+/// Take profit configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TakeProfitConfig {
+    /// Take profit type
+    pub take_profit_type: TakeProfitType,
+
+    /// Enable take profit
+    pub enabled: bool,
+
+    /// Fixed price distance (for Fixed type)
+    pub fixed_distance: f64,
+
+    /// Percentage target (0.0 - 1.0, for Percentage type)
+    pub percentage: f64,
+
+    /// Risk-reward ratio (for RiskReward type, e.g., 2.0 means 2:1)
+    pub risk_reward_ratio: f64,
+
+    /// ATR multiplier (for ATR-based targets)
+    pub atr_multiplier: f64,
+
+    /// ATR period (for ATR-based targets)
+    pub atr_period: usize,
+
+    /// Fibonacci levels to use (e.g., vec![0.382, 0.618, 1.0, 1.618])
+    pub fibonacci_levels: Vec<f64>,
+
+    /// Partial take profit levels
+    pub partial_levels: Vec<PartialTakeProfitLevel>,
+
+    /// Trailing take profit distance
+    pub trailing_distance: f64,
+
+    /// Use limit orders for take profits (vs market orders)
+    pub use_limit_orders: bool,
+}
+
+impl Default for TakeProfitConfig {
+    fn default() -> Self {
+        Self {
+            take_profit_type: TakeProfitType::RiskReward,
+            enabled: false,
+            fixed_distance: 20.0,
+            percentage: 0.05,       // 5% take profit
+            risk_reward_ratio: 2.0, // 2:1 risk-reward
+            atr_multiplier: 3.0,
+            atr_period: 14,
+            fibonacci_levels: vec![0.382, 0.618, 1.0, 1.618],
+            partial_levels: vec![
+                PartialTakeProfitLevel {
+                    size_pct: 0.5,
+                    target: 0.02, // 2% profit, close 50%
+                },
+                PartialTakeProfitLevel {
+                    size_pct: 0.5,
+                    target: 0.04, // 4% profit, close remaining 50%
+                },
+            ],
+            trailing_distance: 15.0,
+            use_limit_orders: true,
+        }
     }
 }
 
@@ -1186,6 +1996,15 @@ pub struct RiskConfig {
     pub max_orders_per_minute: u32,
 
     pub enable_kill_switch: bool,
+
+    /// Position sizing configuration
+    pub position_sizing: PositionSizingConfig,
+
+    /// Stop loss configuration
+    pub stop_loss: StopLossConfig,
+
+    /// Take profit configuration
+    pub take_profit: TakeProfitConfig,
 }
 
 impl Default for RiskConfig {
@@ -1204,6 +2023,9 @@ impl Default for RiskConfig {
             liquidity_limits: HashMap::new(),
             max_orders_per_minute: 120,
             enable_kill_switch: true,
+            position_sizing: PositionSizingConfig::default(),
+            stop_loss: StopLossConfig::default(),
+            take_profit: TakeProfitConfig::default(),
         }
     }
 }
@@ -1578,6 +2400,595 @@ impl RiskManager {
         }
         None
     }
+
+    /// Calculate position size based on configured method
+    pub fn calculate_position_size(
+        &self,
+        entry_price: f64,
+        stop_price: Option<f64>,
+        equity: f64,
+        atr: Option<f64>,
+        win_rate: Option<f64>,
+        avg_win: Option<f64>,
+        avg_loss: Option<f64>,
+    ) -> f64 {
+        let config = &self.config.position_sizing;
+
+        let raw_size = match config.method {
+            PositionSizingMethod::Fixed => config.fixed_size,
+
+            PositionSizingMethod::FixedNotional => {
+                if entry_price > 0.0 {
+                    config.fixed_notional / entry_price
+                } else {
+                    config.fixed_size
+                }
+            }
+
+            PositionSizingMethod::PercentEquity => {
+                if entry_price > 0.0 {
+                    (equity * config.equity_percentage) / entry_price
+                } else {
+                    config.fixed_size
+                }
+            }
+
+            PositionSizingMethod::Kelly => {
+                // Kelly: f = (p * b - q) / b
+                // where p = win rate, q = 1-p, b = avg_win/avg_loss
+                if let (Some(p), Some(w), Some(l)) = (win_rate, avg_win, avg_loss) {
+                    if l > 0.0 {
+                        let b = w / l;
+                        let q = 1.0 - p;
+                        let kelly = ((p * b - q) / b).max(0.0);
+                        let fractional_kelly = kelly * config.kelly_fraction;
+                        if entry_price > 0.0 {
+                            (equity * fractional_kelly) / entry_price
+                        } else {
+                            config.fixed_size
+                        }
+                    } else {
+                        config.fixed_size
+                    }
+                } else {
+                    config.fixed_size
+                }
+            }
+
+            PositionSizingMethod::RiskBased => {
+                // Risk-based: size = risk_amount / (entry_price - stop_price)
+                if let Some(stop) = stop_price {
+                    let risk_per_unit = (entry_price - stop).abs();
+                    if risk_per_unit > 0.0 {
+                        config.risk_per_trade / risk_per_unit
+                    } else {
+                        config.fixed_size
+                    }
+                } else {
+                    config.fixed_size
+                }
+            }
+
+            PositionSizingMethod::VolatilityBased => {
+                // Volatility-based: size based on ATR and target volatility
+                if let Some(atr_value) = atr {
+                    if atr_value > 0.0 && entry_price > 0.0 {
+                        // Target dollar volatility per unit
+                        let target_dollar_vol = equity * config.target_volatility;
+                        // ATR represents typical price movement
+                        let expected_move = atr_value * config.atr_multiplier;
+                        // Size to achieve target volatility
+                        target_dollar_vol / expected_move
+                    } else {
+                        config.fixed_size
+                    }
+                } else {
+                    config.fixed_size
+                }
+            }
+        };
+
+        // Apply min/max constraints
+        raw_size.max(config.min_size).min(config.max_size)
+    }
+
+    /// Calculate stop loss price based on configured method
+    pub fn calculate_stop_loss(
+        &self,
+        entry_price: f64,
+        side: OrderSide,
+        atr: Option<f64>,
+        high: Option<f64>,
+        low: Option<f64>,
+    ) -> Option<f64> {
+        let config = &self.config.stop_loss;
+
+        if !config.enabled {
+            return None;
+        }
+
+        let stop_price = match config.stop_type {
+            StopLossType::None => return None,
+
+            StopLossType::Fixed => match side {
+                OrderSide::Buy => entry_price - config.fixed_distance,
+                OrderSide::Sell => entry_price + config.fixed_distance,
+            },
+
+            StopLossType::Percentage => match side {
+                OrderSide::Buy => entry_price * (1.0 - config.percentage),
+                OrderSide::Sell => entry_price * (1.0 + config.percentage),
+            },
+
+            StopLossType::ATR => {
+                if let Some(atr_value) = atr {
+                    let distance = atr_value * config.atr_multiplier;
+                    match side {
+                        OrderSide::Buy => entry_price - distance,
+                        OrderSide::Sell => entry_price + distance,
+                    }
+                } else {
+                    // Fallback to percentage if ATR not available
+                    match side {
+                        OrderSide::Buy => entry_price * (1.0 - config.percentage),
+                        OrderSide::Sell => entry_price * (1.0 + config.percentage),
+                    }
+                }
+            }
+
+            StopLossType::Chandelier => {
+                if let (Some(atr_value), Some(h)) = (atr, high) {
+                    let distance = atr_value * config.chandelier_multiplier;
+                    match side {
+                        OrderSide::Buy => h - distance,
+                        OrderSide::Sell => {
+                            if let Some(l) = low {
+                                l + distance
+                            } else {
+                                entry_price + distance
+                            }
+                        }
+                    }
+                } else {
+                    return None;
+                }
+            }
+
+            StopLossType::Trailing => match side {
+                OrderSide::Buy => entry_price - config.trailing_distance,
+                OrderSide::Sell => entry_price + config.trailing_distance,
+            },
+
+            StopLossType::TrailingPercentage => match side {
+                OrderSide::Buy => entry_price * (1.0 - config.trailing_percentage),
+                OrderSide::Sell => entry_price * (1.0 + config.trailing_percentage),
+            },
+
+            StopLossType::TrailingATR => {
+                if let Some(atr_value) = atr {
+                    let distance = atr_value * config.atr_multiplier;
+                    match side {
+                        OrderSide::Buy => entry_price - distance,
+                        OrderSide::Sell => entry_price + distance,
+                    }
+                } else {
+                    return None;
+                }
+            }
+
+            StopLossType::TimeBased => {
+                // Time-based stops are handled externally by timestamp
+                return None;
+            }
+
+            StopLossType::ParabolicSAR => {
+                // Parabolic SAR requires external calculation
+                return None;
+            }
+        };
+
+        Some(stop_price)
+    }
+
+    /// Calculate take profit price based on configured method
+    pub fn calculate_take_profit(
+        &self,
+        entry_price: f64,
+        side: OrderSide,
+        stop_price: Option<f64>,
+        atr: Option<f64>,
+    ) -> Option<f64> {
+        let config = &self.config.take_profit;
+
+        if !config.enabled {
+            return None;
+        }
+
+        let tp_price = match config.take_profit_type {
+            TakeProfitType::None => return None,
+
+            TakeProfitType::Fixed => match side {
+                OrderSide::Buy => entry_price + config.fixed_distance,
+                OrderSide::Sell => entry_price - config.fixed_distance,
+            },
+
+            TakeProfitType::Percentage => match side {
+                OrderSide::Buy => entry_price * (1.0 + config.percentage),
+                OrderSide::Sell => entry_price * (1.0 - config.percentage),
+            },
+
+            TakeProfitType::RiskReward => {
+                if let Some(stop) = stop_price {
+                    let risk = (entry_price - stop).abs();
+                    let reward = risk * config.risk_reward_ratio;
+                    match side {
+                        OrderSide::Buy => entry_price + reward,
+                        OrderSide::Sell => entry_price - reward,
+                    }
+                } else {
+                    // Fallback to percentage
+                    match side {
+                        OrderSide::Buy => entry_price * (1.0 + config.percentage),
+                        OrderSide::Sell => entry_price * (1.0 - config.percentage),
+                    }
+                }
+            }
+
+            TakeProfitType::ATR => {
+                if let Some(atr_value) = atr {
+                    let distance = atr_value * config.atr_multiplier;
+                    match side {
+                        OrderSide::Buy => entry_price + distance,
+                        OrderSide::Sell => entry_price - distance,
+                    }
+                } else {
+                    return None;
+                }
+            }
+
+            TakeProfitType::Fibonacci => {
+                // Return the first (most conservative) Fibonacci level
+                if let Some(stop) = stop_price {
+                    let risk = (entry_price - stop).abs();
+                    if let Some(&fib) = config.fibonacci_levels.first() {
+                        let reward = risk * fib;
+                        match side {
+                            OrderSide::Buy => entry_price + reward,
+                            OrderSide::Sell => entry_price - reward,
+                        }
+                    } else {
+                        return None;
+                    }
+                } else {
+                    return None;
+                }
+            }
+
+            TakeProfitType::Partial => {
+                // Return the first partial target
+                if let Some(level) = config.partial_levels.first() {
+                    let distance = level.target;
+                    match side {
+                        OrderSide::Buy => entry_price * (1.0 + distance),
+                        OrderSide::Sell => entry_price * (1.0 - distance),
+                    }
+                } else {
+                    return None;
+                }
+            }
+
+            TakeProfitType::Trailing => match side {
+                OrderSide::Buy => entry_price + config.trailing_distance,
+                OrderSide::Sell => entry_price - config.trailing_distance,
+            },
+        };
+
+        Some(tp_price)
+    }
+
+    /// Get all partial take profit levels
+    pub fn get_partial_take_profit_levels(
+        &self,
+        entry_price: f64,
+        side: OrderSide,
+        position_size: f64,
+    ) -> Vec<(f64, f64)> {
+        // Returns Vec<(price, size_to_close)>
+        let config = &self.config.take_profit;
+
+        if !config.enabled || config.take_profit_type != TakeProfitType::Partial {
+            return Vec::new();
+        }
+
+        config
+            .partial_levels
+            .iter()
+            .map(|level| {
+                let price = match side {
+                    OrderSide::Buy => entry_price * (1.0 + level.target),
+                    OrderSide::Sell => entry_price * (1.0 - level.target),
+                };
+                let size = position_size * level.size_pct;
+                (price, size)
+            })
+            .collect()
+    }
+
+    /// Update trailing stop based on current price
+    pub fn update_trailing_stop(
+        &self,
+        entry_price: f64,
+        current_price: f64,
+        side: OrderSide,
+        current_stop: f64,
+        atr: Option<f64>,
+    ) -> f64 {
+        let config = &self.config.stop_loss;
+
+        if !config.enabled {
+            return current_stop;
+        }
+
+        let new_stop = match config.stop_type {
+            StopLossType::Trailing => {
+                match side {
+                    OrderSide::Buy => {
+                        let proposed = current_price - config.trailing_distance;
+                        proposed.max(current_stop) // Only move up, never down
+                    }
+                    OrderSide::Sell => {
+                        let proposed = current_price + config.trailing_distance;
+                        proposed.min(current_stop) // Only move down, never up
+                    }
+                }
+            }
+
+            StopLossType::TrailingPercentage => match side {
+                OrderSide::Buy => {
+                    let proposed = current_price * (1.0 - config.trailing_percentage);
+                    proposed.max(current_stop)
+                }
+                OrderSide::Sell => {
+                    let proposed = current_price * (1.0 + config.trailing_percentage);
+                    proposed.min(current_stop)
+                }
+            },
+
+            StopLossType::TrailingATR => {
+                if let Some(atr_value) = atr {
+                    let distance = atr_value * config.atr_multiplier;
+                    match side {
+                        OrderSide::Buy => {
+                            let proposed = current_price - distance;
+                            proposed.max(current_stop)
+                        }
+                        OrderSide::Sell => {
+                            let proposed = current_price + distance;
+                            proposed.min(current_stop)
+                        }
+                    }
+                } else {
+                    current_stop
+                }
+            }
+
+            _ => current_stop,
+        };
+
+        // Check for breakeven move
+        if let Some(breakeven_pct) = config.breakeven_after_profit_pct {
+            let profit_pct = match side {
+                OrderSide::Buy => (current_price - entry_price) / entry_price,
+                OrderSide::Sell => (entry_price - current_price) / entry_price,
+            };
+
+            if profit_pct >= breakeven_pct {
+                // Move stop to breakeven (or slightly better)
+                let breakeven_stop = match side {
+                    OrderSide::Buy => entry_price.max(new_stop),
+                    OrderSide::Sell => entry_price.min(new_stop),
+                };
+                return breakeven_stop;
+            }
+        }
+
+        new_stop
+    }
+
+    /// Calculate available capital considering locks and reserves
+    pub fn calculate_available_capital(
+        &self,
+        total_equity: f64,
+        realized_pnl: f64,
+        initial_capital: f64,
+        locked_profits: f64,
+        capital_config: &CapitalConfig,
+    ) -> f64 {
+        let mut available = total_equity;
+
+        // Apply reserve requirement
+        let reserve_amount = total_equity * capital_config.reserve_capital_pct;
+        available -= reserve_amount;
+
+        // Lock profits if enabled
+        if capital_config.lock_profits && realized_pnl > 0.0 {
+            available = available.min(initial_capital + locked_profits);
+        }
+
+        available.max(0.0)
+    }
+
+    /// Calculate margin requirement for position
+    pub fn calculate_margin_requirement(
+        &self,
+        position_value: f64,
+        leverage_config: &LeverageConfig,
+        is_initial: bool,
+    ) -> f64 {
+        if !leverage_config.enabled {
+            return position_value; // No leverage, full capital required
+        }
+
+        let margin_pct = if is_initial {
+            leverage_config.initial_margin_pct
+        } else {
+            leverage_config.maintenance_margin_pct
+        };
+
+        position_value * margin_pct
+    }
+
+    /// Check if position violates holding period constraints
+    pub fn check_holding_period(
+        &self,
+        entry_time: UnixNanos,
+        current_time: UnixNanos,
+        config: &HoldingPeriodConfig,
+        is_profitable: bool,
+    ) -> RiskCheckResult {
+        if !config.enabled {
+            return RiskCheckResult::Allowed;
+        }
+
+        let holding_seconds = (current_time.0 - entry_time.0) / 1_000_000_000;
+
+        // Check minimum holding period
+        if holding_seconds < config.min_holding_seconds {
+            return RiskCheckResult::Rejected(format!(
+                "Minimum holding period not met: {}s < {}s",
+                holding_seconds, config.min_holding_seconds
+            ));
+        }
+
+        // Check minimum holding for profit
+        if is_profitable && holding_seconds < config.min_holding_for_profit {
+            return RiskCheckResult::Rejected(format!(
+                "Minimum holding period for profit not met: {}s < {}s",
+                holding_seconds, config.min_holding_for_profit
+            ));
+        }
+
+        // Check maximum holding period
+        if config.max_holding_seconds > 0 && holding_seconds > config.max_holding_seconds {
+            if config.force_close_at_max {
+                return RiskCheckResult::KillSwitch(format!(
+                    "Maximum holding period exceeded: {}s > {}s (force close)",
+                    holding_seconds, config.max_holding_seconds
+                ));
+            }
+        }
+
+        RiskCheckResult::Allowed
+    }
+
+    /// Calculate margin health ratio (1.0 = at maintenance margin, > 1.0 = healthy)
+    pub fn calculate_margin_health(
+        &self,
+        equity: f64,
+        position_value: f64,
+        leverage_config: &LeverageConfig,
+    ) -> f64 {
+        if !leverage_config.enabled || position_value <= 0.0 {
+            return f64::INFINITY;
+        }
+
+        let required_margin = position_value * leverage_config.maintenance_margin_pct;
+        if required_margin <= 0.0 {
+            return f64::INFINITY;
+        }
+
+        equity / required_margin
+    }
+
+    /// Check for margin call
+    pub fn check_margin_call(
+        &self,
+        equity: f64,
+        position_value: f64,
+        leverage_config: &LeverageConfig,
+    ) -> Option<String> {
+        if !leverage_config.enabled {
+            return None;
+        }
+
+        let margin_health = self.calculate_margin_health(equity, position_value, leverage_config);
+
+        // Check for liquidation danger
+        if margin_health < (1.0 + leverage_config.liquidation_buffer_pct) {
+            return Some(format!(
+                "Liquidation danger: margin health {:.2} too low",
+                margin_health
+            ));
+        }
+
+        // Check for margin call
+        if margin_health < leverage_config.margin_call_threshold {
+            return Some(format!(
+                "Margin call: margin health {:.2} below threshold {:.2}",
+                margin_health, leverage_config.margin_call_threshold
+            ));
+        }
+
+        None
+    }
+
+    /// Calculate borrow cost for leveraged position
+    pub fn calculate_borrow_cost(
+        &self,
+        borrowed_amount: f64,
+        holding_seconds: u64,
+        leverage_config: &LeverageConfig,
+    ) -> f64 {
+        if !leverage_config.enabled || borrowed_amount <= 0.0 {
+            return 0.0;
+        }
+
+        let annual_rate = leverage_config.borrow_rate_annual;
+        let seconds_per_year = 365.25 * 24.0 * 3600.0;
+        let rate_per_second = annual_rate / seconds_per_year;
+
+        borrowed_amount * rate_per_second * (holding_seconds as f64)
+    }
+
+    /// Check if pyramiding is allowed
+    pub fn check_pyramiding(
+        &self,
+        _instrument_id: &InstrumentId,
+        current_position_count: usize,
+        position_config: &PositionManagementConfig,
+    ) -> RiskCheckResult {
+        if !position_config.allow_pyramiding {
+            if current_position_count > 0 {
+                return RiskCheckResult::Rejected("Pyramiding not allowed".to_string());
+            }
+        } else {
+            if current_position_count >= position_config.max_pyramid_levels {
+                return RiskCheckResult::Rejected(format!(
+                    "Maximum pyramid levels {} reached",
+                    position_config.max_pyramid_levels
+                ));
+            }
+        }
+
+        RiskCheckResult::Allowed
+    }
+
+    /// Calculate pyramiding size (scaled down based on level)
+    pub fn calculate_pyramid_size(
+        &self,
+        base_size: f64,
+        pyramid_level: usize,
+        position_config: &PositionManagementConfig,
+    ) -> f64 {
+        if pyramid_level == 0 {
+            return base_size;
+        }
+
+        base_size
+            * position_config
+                .pyramid_scale_factor
+                .powi(pyramid_level as i32)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1668,6 +3079,11 @@ impl FeeCalculator {
     pub fn taker_fee_bps(&self) -> f64 {
         self.get_current_tier().taker_fee_bps
     }
+
+    /// Get the venue this calculator is configured for
+    pub fn venue(&self) -> Venue {
+        self.venue
+    }
 }
 
 pub struct FundingTracker {
@@ -1712,6 +3128,11 @@ impl FundingTracker {
 
     pub fn total_funding(&self) -> f64 {
         self.total_funding
+    }
+
+    /// Get the venue this tracker is configured for
+    pub fn venue(&self) -> Venue {
+        self.venue
     }
 }
 
@@ -1779,7 +3200,7 @@ mod tests {
 
     #[test]
     fn test_clock_modes() {
-        let mut live_clock = Clock::new(ClockMode::Live);
+        let live_clock = Clock::new(ClockMode::Live);
         let t1 = live_clock.now();
         std::thread::sleep(std::time::Duration::from_millis(1));
         let t2 = live_clock.now();

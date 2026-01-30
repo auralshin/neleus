@@ -66,10 +66,12 @@ impl Topic {
         Self("system".to_string())
     }
 
+    #[inline(always)]
     pub fn as_str(&self) -> &str {
         &self.0
     }
 
+    #[inline]
     pub fn matches(&self, pattern: &str) -> bool {
         if pattern == "*" {
             return true;
@@ -128,6 +130,7 @@ pub struct Message {
 }
 
 impl Message {
+    #[inline(always)]
     pub fn new(kind: MessageKind, topic: Topic, payload: Vec<u8>) -> Self {
         static COUNTER: AtomicU64 = AtomicU64::new(1);
         Self {
@@ -142,32 +145,39 @@ impl Message {
         }
     }
 
+    #[inline(always)]
     pub fn data(topic: Topic, payload: Vec<u8>) -> Self {
         Self::new(MessageKind::Data, topic, payload)
     }
 
+    #[inline(always)]
     pub fn event(topic: Topic, payload: Vec<u8>) -> Self {
         Self::new(MessageKind::Event, topic, payload)
     }
 
+    #[inline(always)]
     pub fn command(topic: Topic, payload: Vec<u8>) -> Self {
         Self::new(MessageKind::Command, topic, payload)
     }
 
+    #[inline]
     pub fn system(payload: Vec<u8>) -> Self {
         Self::new(MessageKind::System, Topic::system(), payload)
     }
 
+    #[inline]
     pub fn with_priority(mut self, priority: Priority) -> Self {
         self.priority = priority;
         self
     }
 
+    #[inline]
     pub fn with_correlation(mut self, correlation_id: u64) -> Self {
         self.correlation_id = Some(correlation_id);
         self
     }
 
+    #[inline]
     pub fn with_reply_to(mut self, topic: Topic) -> Self {
         self.reply_to = Some(topic);
         self
@@ -211,6 +221,7 @@ impl Subscription {
         self
     }
 
+    #[inline]
     pub fn matches(&self, message: &Message) -> bool {
         self.kinds.contains(&message.kind) && message.topic.matches(&self.pattern)
     }

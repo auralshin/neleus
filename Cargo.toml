@@ -7,9 +7,14 @@ members = [
   "crates/backtest",
   "crates/adapters-hyperliquid",
   "crates/adapters-lighter",
+  "crates/adapters-polymarket",
   "crates/monitoring",
   "crates/persistence",
   "crates/pybridge",
+  # Managed service components
+  "crates/agent-orchestrator",
+  "crates/signal-hub",
+  "crates/agent-monitor",
 ]
 resolver = "2"
 
@@ -47,6 +52,7 @@ chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1.0", features = ["v4"] }
 rand = "0.8"
 parking_lot = "0.12"
+dashmap = "5.5"
 rusqlite = { version = "0.32", features = ["bundled"] }
 tokio-postgres = { version = "0.7", features = ["with-chrono-0_4", "with-serde_json-1"] }
 deadpool-postgres = "0.14"
@@ -58,3 +64,28 @@ hmac = "0.12"
 
 # Python bindings
 pyo3 = { version = "0.22", features = ["extension-module"] }
+
+# Performance optimizations
+[profile.release]
+opt-level = 3
+lto = "fat"              # Aggressive link-time optimization
+codegen-units = 1        # Single codegen unit for better optimization
+panic = "abort"          # No unwinding overhead
+strip = true             # Smaller binary
+debug = false            # No debug info
+
+# Optimize all dependencies
+[profile.release.package."*"]
+opt-level = 3
+
+# Profile for profiling (keeps symbols for flamegraph)
+[profile.profiling]
+inherits = "release"
+debug = true
+strip = false
+lto = "thin"
+
+# Profile for benchmarking
+[profile.bench]
+inherits = "release"
+lto = "thin"

@@ -5,12 +5,50 @@
 
 Neleus is a trading and backtesting framework that lets you write strategies once and run them unchanged across research backtests, paper trading, and live execution. Built with a high-performance Rust core and an ergonomic Python strategy layer.
 
+## 📚 Documentation
+
+**Complete documentation is now available:**
+- 🚀 [**Getting Started**](./docs/GETTING_STARTED.md) - Installation, setup, and first strategy
+- 📖 [**API Reference**](./docs/API_REFERENCE.md) - Complete API documentation
+- ⌨️ [**CLI Reference**](./docs/CLI_REFERENCE.md) - Command-line tools
+- 💡 [**Examples**](./docs/EXAMPLES.md) - Strategy examples and tutorials
+- ⚙️ [**Configuration**](./docs/CONFIGURATION.md) - Setup and configuration
+- ⚡ [**Quick Reference**](./docs/QUICK_REFERENCE.md) - Cheat sheet
+- 🏗️ [**Architecture**](./docs/ARCHITECTURE.md) - System design
+
+**[📖 View Full Documentation Index](./docs/INDEX.md)**
+
 
 ### Installation
 
+#### Prerequisites
+- Python 3.8+
+- Rust toolchain (for building the extension)
+
+#### Install from Source
+
 ```bash
-pip install neleus
+# Clone the repository
+git clone https://github.com/auralshin/neleus.git
+cd neleus
+
+# Create virtual environment
+python3 -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+
+# Install maturin (builds Rust extensions for Python)
+pip install maturin
+
+# Build and install the Rust extension
+cd crates/pybridge
+maturin develop --release
+cd ../..
+
+# Install Python dependencies
+pip install -e python/
 ```
+
+The Rust extension (`neleus_core`) is **required** - Neleus does not have a Python fallback.
 
 ### Create a Project
 
@@ -179,6 +217,26 @@ NELEUS_MAX_POSITION_SIZE=1.0
 ## Documentation
 
 - [Python Package](python/README.md) - Strategy development guide
+- [Architecture](docs/ARCHITECTURE.md) - System design and data flow
+- [Status](docs/STATUS.md) - Component completion status and recent changes
+
+## Supported Venues
+
+| Venue | Market Data | Order Execution | Status |
+|-------|-------------|-----------------|--------|
+| Hyperliquid |  |  | Production Ready |
+| Lighter |  |  | Production Ready |
+| Polymarket |  |  | Production Ready |
+
+## Key Features
+
+- **Rust Core Engine** - High-performance event loop and order matching
+- **Python Strategy Layer** - Write strategies with NumPy, Pandas, SciPy
+- **Unified Adapter System** - ExecutionClient and DataClient traits
+- **Full Backtesting** - Position tracking, P&L calculation, performance metrics
+- **Risk Management** - Dynamic limits, drawdown protection, leverage controls
+- **Event Persistence** - TimescaleDB integration for replay and analysis
+- **Python Engine Control** - Full engine lifecycle management from Python
 
 ## License
 

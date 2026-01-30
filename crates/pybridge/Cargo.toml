@@ -16,6 +16,9 @@ neleus-core-engine = { path = "../core-engine" }
 neleus-backtest = { path = "../backtest" }
 neleus-adapters-hyperliquid = { path = "../adapters-hyperliquid" }
 neleus-adapters-lighter = { path = "../adapters-lighter" }
+neleus-persistence = { path = "../persistence" }
 pyo3 = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+tokio = { workspace = true }
+chrono = { version = "0.4", features = ["serde"] }

@@ -2,11 +2,35 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::ops::{Add, Div, Mul, Neg, Sub};
 
+// Pre-computed reciprocals for fast division
+const SCALE_RECIPROCALS: [f64; 19] = [
+    1.0,                      // scale 0
+    0.1,                      // scale 1
+    0.01,                     // scale 2
+    0.001,                    // scale 3
+    0.0001,                   // scale 4
+    0.00001,                  // scale 5
+    0.000001,                 // scale 6
+    0.0000001,                // scale 7
+    0.00000001,               // scale 8 (default)
+    0.000000001,              // scale 9
+    0.0000000001,             // scale 10
+    0.00000000001,            // scale 11
+    0.000000000001,           // scale 12
+    0.0000000000001,          // scale 13
+    0.00000000000001,         // scale 14
+    0.000000000000001,        // scale 15
+    0.0000000000000001,       // scale 16
+    0.00000000000000001,      // scale 17
+    0.000000000000000001,     // scale 18
+];
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Venue {
     Hyperliquid,
     Lighter,
+    Polymarket,
 
     Simulated,
 }
@@ -16,6 +40,7 @@ impl fmt::Display for Venue {
         match self {
             Venue::Hyperliquid => write!(f, "HYPERLIQUID"),
             Venue::Lighter => write!(f, "LIGHTER"),
+            Venue::Polymarket => write!(f, "POLYMARKET"),
             Venue::Simulated => write!(f, "SIMULATED"),
         }
     }
@@ -53,29 +78,35 @@ impl InstrumentId {
         }
     }
 
+    #[inline]
     pub fn parse(s: &str) -> Option<Self> {
-        let parts: Vec<&str> = s.split(':').collect();
-        if parts.len() != 2 {
-            return None;
-        }
-        let venue = match parts[0].to_uppercase().as_str() {
-            "HYPERLIQUID" => Venue::Hyperliquid,
-            "LIGHTER" => Venue::Lighter,
-            "SIMULATED" => Venue::Simulated,
+        // Use splitn to avoid allocating Vec
+        let mut parts = s.splitn(2, ':');
+        let venue_str = parts.next()?;
+        let rest = parts.next()?;
+        
+        // Direct byte comparison - no allocations
+        let venue = match venue_str.as_bytes() {
+            b"HYPERLIQUID" | b"hyperliquid" | b"Hyperliquid" => Venue::Hyperliquid,
+            b"LIGHTER" | b"lighter" | b"Lighter" => Venue::Lighter,
+            b"POLYMARKET" | b"polymarket" | b"Polymarket" => Venue::Polymarket,
+            b"SIMULATED" | b"simulated" | b"Simulated" => Venue::Simulated,
             _ => return None,
         };
-        let sym_parts: Vec<&str> = parts[1].split('.').collect();
-        if sym_parts.len() != 2 {
-            return None;
-        }
-        let kind = match sym_parts[1].to_uppercase().as_str() {
-            "PERP" => InstrumentType::Perp,
-            "SPOT" => InstrumentType::Spot,
+        
+        let mut sym_parts = rest.splitn(2, '.');
+        let symbol = sym_parts.next()?;
+        let kind_str = sym_parts.next()?;
+        
+        let kind = match kind_str.as_bytes() {
+            b"PERP" | b"perp" | b"Perp" => InstrumentType::Perp,
+            b"SPOT" | b"spot" | b"Spot" => InstrumentType::Spot,
             _ => return None,
         };
+        
         Some(Self {
             venue,
-            symbol: sym_parts[0].to_string(),
+            symbol: symbol.to_string(),
             kind,
         })
     }
@@ -237,22 +268,32 @@ impl FixedPoint {
         }
     }
 
+    #[inline(always)]
     pub fn to_f64(&self) -> f64 {
-        self.value as f64 / 10_f64.powi(self.scale as i32)
+        if (self.scale as usize) < SCALE_RECIPROCALS.len() {
+            (self.value as f64) * SCALE_RECIPROCALS[self.scale as usize]
+        } else {
+            // Fallback for unusual scales
+            self.value as f64 / 10_f64.powi(self.scale as i32)
+        }
     }
 
+    #[inline(always)]
     pub fn is_zero(&self) -> bool {
         self.value == 0
     }
 
+    #[inline(always)]
     pub fn is_positive(&self) -> bool {
         self.value > 0
     }
 
+    #[inline(always)]
     pub fn is_negative(&self) -> bool {
         self.value < 0
     }
 
+    #[inline(always)]
     pub fn abs(&self) -> Self {
         Self {
             value: self.value.abs(),
@@ -290,6 +331,7 @@ impl fmt::Display for FixedPoint {
 
 impl Add for FixedPoint {
     type Output = Self;
+    #[inline(always)]
     fn add(self, rhs: Self) -> Self::Output {
         assert_eq!(
             self.scale, rhs.scale,
@@ -304,6 +346,7 @@ impl Add for FixedPoint {
 
 impl Sub for FixedPoint {
     type Output = Self;
+    #[inline(always)]
     fn sub(self, rhs: Self) -> Self::Output {
         assert_eq!(
             self.scale, rhs.scale,
@@ -318,8 +361,15 @@ impl Sub for FixedPoint {
 
 impl Mul for FixedPoint {
     type Output = Self;
+    #[inline(always)]
     fn mul(self, rhs: Self) -> Self::Output {
-        let new_value = self.value * rhs.value / 10_i64.pow(self.scale as u32);
+        // Optimize multiplication - avoid pow() in hot path
+        let new_value = if self.scale == 8 {
+            // Common case: scale 8 - use bit shift
+            (self.value * rhs.value) >> 8
+        } else {
+            self.value * rhs.value / 10_i64.pow(self.scale as u32)
+        };
         Self {
             value: new_value,
             scale: self.scale,
@@ -329,9 +379,15 @@ impl Mul for FixedPoint {
 
 impl Div for FixedPoint {
     type Output = Self;
+    #[inline(always)]
     fn div(self, rhs: Self) -> Self::Output {
         assert!(!rhs.is_zero(), "Division by zero");
-        let new_value = self.value * 10_i64.pow(self.scale as u32) / rhs.value;
+        // Optimize division
+        let new_value = if self.scale == 8 {
+            (self.value << 8) / rhs.value
+        } else {
+            self.value * 10_i64.pow(self.scale as u32) / rhs.value
+        };
         Self {
             value: new_value,
             scale: self.scale,
@@ -341,6 +397,7 @@ impl Div for FixedPoint {
 
 impl Neg for FixedPoint {
     type Output = Self;
+    #[inline(always)]
     fn neg(self) -> Self::Output {
         Self {
             value: -self.value,
@@ -567,14 +624,30 @@ macro_rules! define_id {
     };
 }
 
-fn rand_simple() -> u64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let seed = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos() as u64;
+// Optimized ID generation with minimal system calls
+use std::sync::atomic::{AtomicU64, Ordering};
 
-    let mut x = seed;
+static ID_COUNTER: AtomicU64 = AtomicU64::new(1);
+
+#[inline(always)]
+fn next_id() -> u64 {
+    ID_COUNTER.fetch_add(1, Ordering::Relaxed)
+}
+
+fn rand_simple() -> u64 {
+    // Use atomic counter for speed, hash thread ID for uniqueness
+    let counter = next_id();
+    
+    // Hash thread ID using pointer address (stable API)
+    let thread_id = {
+        let id = std::thread::current().id();
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        use std::hash::{Hash, Hasher};
+        id.hash(&mut hasher);
+        hasher.finish()
+    };
+    
+    let mut x = counter.wrapping_mul(thread_id);
     x ^= x << 13;
     x ^= x >> 7;
     x ^= x << 17;

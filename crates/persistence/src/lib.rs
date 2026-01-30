@@ -7,6 +7,17 @@ use tokio::sync::mpsc as async_mpsc;
 use tokio_postgres::{Error as PgError, NoTls};
 use tracing::{error, info};
 
+pub mod timescale;
+pub use timescale::{
+    Candle, FundingRate, Indicator, OrderBookSnapshot, Quote, TimescaleConfig, TimescaleStore,
+    Trade,
+};
+
+pub mod replay;
+pub use replay::{
+    HistoricalReplayer, MarketEvent, ReplayConfig, ReplayProgress, ReplayStats,
+};
+
 const POSTGRES_SCHEMA: &str = r#"
 CREATE TABLE IF NOT EXISTS event_log (
     id BIGSERIAL PRIMARY KEY,
@@ -294,7 +305,7 @@ impl PostgresEventReader {
             let kinds_str: Vec<_> = query.kinds.iter().map(|k| k.as_str()).collect();
             conditions.push(format!("kind = ANY(${})", param_idx));
             params.push(Box::new(kinds_str));
-            param_idx += 1;
+            // param_idx not needed after this point
         }
 
         let where_clause = if conditions.is_empty() {
@@ -393,7 +404,7 @@ impl PostgresEventReader {
         if let Some(end) = query.end_timestamp {
             conditions.push(format!("timestamp <= ${}", param_idx));
             params.push(Box::new(end as i64));
-            param_idx += 1;
+            let _ = param_idx; // Suppress unused warning
         }
 
         let where_clause = if conditions.is_empty() {
@@ -418,7 +429,7 @@ impl PostgresEventReader {
         Ok(count as u64)
     }
 
-    pub async fn stream(&self, query: ReplayQuery, batch_size: usize) -> Result<EventStream> {
+    pub async fn stream(&self, query: ReplayQuery, batch_size: usize) -> Result<EventStream<'_>> {
         let count = self.count(query.clone()).await?;
         Ok(EventStream {
             reader: self,
@@ -478,6 +489,11 @@ impl<'a> EventStream<'a> {
     pub fn total_count(&self) -> u64 {
         self.total_count
     }
+    
+    /// Get the number of messages currently buffered
+    pub fn buffered_count(&self) -> usize {
+        self.buffer.len()
+    }
 
     pub fn progress(&self) -> f64 {
         if self.total_count == 0 {
@@ -507,6 +523,12 @@ impl<'a> EventStream<'a> {
     }
 }
 
+/// Statistics for event replay from PostgreSQL
+#[derive(Debug, Clone, Default)]
+pub struct EventReplayStats {
+    pub events_replayed: u64,
+}
+
 pub struct EventReplayer<B: neleus_core_bus::Bus> {
     reader: PostgresEventReader,
     bus: B,
@@ -517,8 +539,8 @@ impl<B: neleus_core_bus::Bus> EventReplayer<B> {
         Self { reader, bus }
     }
 
-    pub async fn replay(&mut self, query: ReplayQuery) -> Result<ReplayStats> {
-        let mut stats = ReplayStats::default();
+    pub async fn replay(&mut self, query: ReplayQuery) -> Result<EventReplayStats> {
+        let mut stats = EventReplayStats::default();
         let mut stream = self.reader.stream(query, 10_000).await?;
 
         while let Some(batch) = stream.next_batch().await? {
@@ -535,8 +557,8 @@ impl<B: neleus_core_bus::Bus> EventReplayer<B> {
         &mut self,
         query: ReplayQuery,
         speed_multiplier: f64,
-    ) -> Result<ReplayStats> {
-        let mut stats = ReplayStats::default();
+    ) -> Result<EventReplayStats> {
+        let mut stats = EventReplayStats::default();
         let messages = self.reader.query(query).await?;
 
         if messages.is_empty() {
@@ -570,11 +592,6 @@ impl<B: neleus_core_bus::Bus> EventReplayer<B> {
     pub fn into_bus(self) -> B {
         self.bus
     }
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct ReplayStats {
-    pub events_replayed: u64,
 }
 
 #[cfg(test)]

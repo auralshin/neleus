@@ -1,0 +1,45 @@
+[package]
+name = "neleus-signal-hub"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "Signal hub for external AI/ML and quant signal integration"
+
+[dependencies]
+# Workspace dependencies
+neleus-core-types = { path = "../core-types" }
+neleus-core-bus = { path = "../core-bus" }
+
+# Serialization
+serde.workspace = true
+serde_json.workspace = true
+
+# Async runtime
+tokio.workspace = true
+futures.workspace = true
+async-trait.workspace = true
+
+# HTTP/WebSocket
+axum.workspace = true
+reqwest.workspace = true
+tokio-tungstenite.workspace = true
+
+# Utilities
+thiserror.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+parking_lot.workspace = true
+
+# Message queue support (optional)
+dashmap = "5.5"
+
+[features]
+default = []
+redis = []
+kafka = []
+grpc = []
+
+[dev-dependencies]
+tokio-test = "0.4"
