@@ -1,11 +1,34 @@
 """
-Neleus - High-Performance Trading Framework
-===========================================
+Neleus - Agent Orchestrator Service
+====================================
 
-Neleus is a trading and backtesting framework that combines a high-performance
-Rust core with an ergonomic Python strategy layer.
+Make Your Agent Trade Smarter
 
-Quick Start:
+Neleus is an AI agent orchestration platform that combines a high-performance
+Rust core with an intelligent Python agent layer. Build, deploy, and manage
+autonomous trading agents with memory, reasoning, and execution capabilities.
+
+Quick Start - AI Agent:
+    from neleus.ai import AIAgent, AgentConfig
+    
+    class MyTradingAgent(AIAgent):
+        async def decide(self, context):
+            # Think with LLM
+            reasoning = await self.think("Analyze this market...")
+            
+            # Use tools
+            data = await self.execute_tool("get_market_data", instrument="BTC-PERP")
+            
+            # Remember for future
+            await self.remember("Important observation...", memory_type=MemoryType.OBSERVATION)
+            
+            return {"action": "hold", "reasoning": reasoning}
+    
+    # Run agent
+    agent = MyTradingAgent(AgentConfig.from_project("./my_agent"))
+    await agent.start()
+
+Quick Start - Strategy:
     from neleus import Strategy, StrategyContext, Bar, OrderSide
     
     class MyStrategy(Strategy):
@@ -20,7 +43,8 @@ Quick Start:
 
 Architecture:
     - Rust core: Order management, position tracking, backtest engine
-    - Python layer: Strategy logic, configuration, analysis
+    - Python AI layer: Agent framework with memory, tools, and LLM integration
+    - Python strategy layer: Strategy logic, configuration, analysis
     - PyO3 bridge: Zero-copy data passing between Rust and Python
 """
 
@@ -190,6 +214,58 @@ from .config.deployment import (
     tee_config,
 )
 
+# =============================================================================
+# AI Agent Framework (New Agent Orchestrator)
+# =============================================================================
+
+from .ai import (
+    # Core Agent
+    AIAgent,
+    AgentConfig,
+    PersonalityConfig,
+    InfoConfig,
+    AgentState,
+    # Memory System
+    MemoryStore,
+    LocalMemoryStore,
+    CompositeMemoryStore,
+    MemoryEntry,
+    MemoryType,
+    # Tool Framework
+    Tool,
+    ToolRegistry,
+    ToolParameter,
+    ToolResult,
+    GetMarketDataTool,
+    GetAnalysisTool,
+    PlaceOrderTool,
+    GetSignalsTool,
+    QueryMemoryTool,
+    GetPortfolioTool,
+    SendMessageTool,
+    # LLM Providers
+    LLMProvider,
+    OpenAIProvider,
+    AnthropicProvider,
+    OllamaProvider,
+    Message,
+    MessageRole,
+    CompletionResult,
+    ToolCall,
+    create_provider,
+    # Communication
+    MessageBus,
+    LocalMessageBus,
+    AgentMessage,
+    MessageType,
+    MessagePriority,
+    # Formatters
+    MarketDataFormatter,
+    SignalFormatter,
+    PortfolioFormatter,
+    AnalysisFormatter,
+)
+
 
 __all__ = [
     # Version
@@ -296,4 +372,52 @@ __all__ = [
     "docker_config",
     "kubernetes_config",
     "tee_config",
+    # ==========================================================================
+    # AI Agent Framework (Agent Orchestrator Service)
+    # ==========================================================================
+    # Core Agent
+    "AIAgent",
+    "AgentConfig",
+    "PersonalityConfig",
+    "InfoConfig",
+    "AgentState",
+    # Memory System
+    "MemoryStore",
+    "LocalMemoryStore",
+    "CompositeMemoryStore",
+    "MemoryEntry",
+    "MemoryType",
+    # Tool Framework
+    "Tool",
+    "ToolRegistry",
+    "ToolParameter",
+    "ToolResult",
+    "GetMarketDataTool",
+    "GetAnalysisTool",
+    "PlaceOrderTool",
+    "GetSignalsTool",
+    "QueryMemoryTool",
+    "GetPortfolioTool",
+    "SendMessageTool",
+    # LLM Providers
+    "LLMProvider",
+    "OpenAIProvider",
+    "AnthropicProvider",
+    "OllamaProvider",
+    "Message",
+    "MessageRole",
+    "CompletionResult",
+    "ToolCall",
+    "create_provider",
+    # Communication
+    "MessageBus",
+    "LocalMessageBus",
+    "AgentMessage",
+    "MessageType",
+    "MessagePriority",
+    # Formatters
+    "MarketDataFormatter",
+    "SignalFormatter",
+    "PortfolioFormatter",
+    "AnalysisFormatter",
 ]

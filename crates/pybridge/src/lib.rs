@@ -5,12 +5,14 @@ mod execution;
 mod portfolio;
 mod adapters;
 mod engine;
+mod agent_bindings;
 
 pub use types::*;
 pub use execution::*;
 pub use portfolio::*;
 pub use adapters::*;
 pub use engine::*;
+pub use agent_bindings::*;
 
 #[pyfunction]
 pub fn version() -> &'static str {
@@ -102,6 +104,9 @@ fn neleus_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyLiveNodeConfig>()?;
     m.add_class::<PyCircuitState>()?;
     m.add_class::<PyLiveNode>()?;
+
+    // Agent AI types
+    agent_bindings::register_agent_types(m)?;
 
     Ok(())
 }

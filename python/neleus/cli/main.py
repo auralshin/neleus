@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
 """
-Neleus CLI - Command Line Interface for the Neleus Trading Framework
+Neleus CLI - Command Line Interface for the Neleus Agent Orchestrator
+
+Make Your Agent Trade Smarter
 
 Commands:
     neleus new <project-name>  - Create a new Neleus project
+    neleus new-agent <name>    - Create a new AI trading agent
+    neleus agent run <path>    - Run an AI trading agent
+    neleus agent list          - List agent projects
     neleus init               - Initialize Neleus in current directory
     neleus run                - Run backtest or live trading
     neleus ui                 - Start the web UI dashboard
@@ -47,11 +52,12 @@ NELEUS_BANNER = """
     ██║ ╚████║███████╗███████╗███████╗╚██████╔╝███████║
     ╚═╝  ╚═══╝╚══════╝╚══════╝╚══════╝ ╚═════╝ ╚══════╝
 [/bold cyan]
-[dim]    High-Performance DeFi Trading Framework[/dim]
+[bold magenta]    Agent Orchestrator Service[/bold magenta]
+    [dim]Make Your Agent Trade Smarter[/dim]
     [dim]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/dim]
 """
 
-NELEUS_SHORT_BANNER = "[bold cyan]Neleus[/bold cyan] [dim]v0.1.0[/dim] — DeFi Trading Framework"
+NELEUS_SHORT_BANNER = "[bold cyan]Neleus[/bold cyan] [dim]v0.1.0[/dim] — Agent Orchestrator · [italic]Make Your Agent Trade Smarter[/italic]"
 
 
 def print_banner(short: bool = False):
@@ -64,7 +70,7 @@ def print_banner(short: bool = False):
 
 app = typer.Typer(
     name="neleus",
-    help="Neleus - High-Performance DeFi Trading Framework",
+    help="Neleus - Agent Orchestrator Service · Make Your Agent Trade Smarter",
     add_completion=True,
     rich_markup_mode="rich",
     no_args_is_help=False,
@@ -77,9 +83,11 @@ def main_callback(
     version: bool = typer.Option(False, "--version", "-v", help="Show version"),
 ):
     """
-    Neleus — High-Performance DeFi Trading Framework
+    Neleus — Agent Orchestrator Service
     
-    Quantitative trading infrastructure with sub-millisecond latency.
+    Make Your Agent Trade Smarter
+    
+    AI-powered trading agents with memory, reasoning, and execution.
     """
     if version:
         print_banner()
@@ -90,7 +98,11 @@ def main_callback(
         print_banner()
         console.print("[bold]Usage:[/bold] neleus [OPTIONS] COMMAND [ARGS]...")
         console.print()
-        console.print("[bold]Commands:[/bold]")
+        console.print("[bold magenta]AI Agent Commands:[/bold magenta]")
+        console.print("  [cyan]new-agent[/cyan]  Create a new AI trading agent")
+        console.print("  [cyan]agent[/cyan]      Manage and run AI agents")
+        console.print()
+        console.print("[bold]Project Commands:[/bold]")
         console.print("  [cyan]new[/cyan]        Create a new Neleus project")
         console.print("  [cyan]init[/cyan]       Initialize Neleus in current directory")
         console.print("  [cyan]run[/cyan]        Run a strategy (backtest or live)")
@@ -115,11 +127,16 @@ from .deploy import deploy_app
 from .agents import agents_app
 from .signals import signals_app
 from .metrics import metrics_app
+from .agent_project import agent_project_app, new_agent as new_agent_cmd
 
 app.add_typer(deploy_app, name="deploy")
 app.add_typer(agents_app, name="agents")
 app.add_typer(signals_app, name="signals")
 app.add_typer(metrics_app, name="metrics")
+
+# AI Agent commands
+app.add_typer(agent_project_app, name="agent")
+app.command("new-agent")(new_agent_cmd)
 
 # =============================================================================
 # Configuration

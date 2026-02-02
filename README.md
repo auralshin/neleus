@@ -1,15 +1,66 @@
 <p align="center">
   <img src="logo.png" alt="Neleus logo" width="200">
-  <p align="center"><strong>Neleus</strong><br/>One codebase, many modes: backtest → paper → live</p>
+  <h3 align="center"><strong>Neleus</strong></h3>
+  <p align="center"><em>Make Your Agent Trade Smarter</em></p>
+  <p align="center">Agent Orchestrator Service for AI Trading Agents</p>
 </p>
 
-Neleus is a trading and backtesting framework that lets you write strategies once and run them unchanged across research backtests, paper trading, and live execution. Built with a high-performance Rust core and an ergonomic Python strategy layer.
+---
+
+Neleus is an **AI Agent Orchestrator Service** for building intelligent trading agents. It combines a high-performance Rust core with a Python AI framework featuring:
+
+- 🧠 **LLM-Powered Reasoning** - OpenAI, Anthropic, Ollama integration
+- 💾 **Persistent Memory** - Agents remember and learn from past decisions  
+- 🔧 **Tool Framework** - Market data, analysis, execution, and more
+- 📡 **Agent Communication** - Agents can share signals and coordinate
+- 📊 **Data Formatting** - Optimal data presentation for LLM consumption
+
+## 🚀 Quick Start - AI Agent
+
+```bash
+# Create a new AI trading agent
+neleus new-agent my_trading_agent
+cd my_trading_agent
+
+# Configure your agent
+# - Edit personality.yaml (trading style, risk tolerance)
+# - Edit info.yaml (LLM provider, tools, instruments)
+
+# Set your API key
+export OPENAI_API_KEY="your-key-here"
+
+# Run the agent
+python main.py
+```
+
+### Example Agent
+
+```python
+from neleus.ai import AIAgent, AgentConfig, MemoryType
+
+class MyTradingAgent(AIAgent):
+    async def decide(self, context):
+        # Get market data
+        data = await self.execute_tool("get_market_data", instrument="BTC-PERP")
+        
+        # Think with LLM
+        reasoning = await self.think(f"Analyze {data}. Should I buy, sell, or hold?")
+        
+        # Remember this decision
+        await self.remember(
+            f"Decided to {reasoning}",
+            memory_type=MemoryType.DECISION
+        )
+        
+        return {"action": "hold", "reasoning": reasoning}
+```
 
 ## 📚 Documentation
 
 **Complete documentation is now available:**
 - 🚀 [**Getting Started**](./docs/GETTING_STARTED.md) - Installation, setup, and first strategy
-- 📖 [**API Reference**](./docs/API_REFERENCE.md) - Complete API documentation
+- � [**Usage Guide**](./docs/USAGE.md) - **NEW!** Comprehensive usage documentation
+- �📖 [**API Reference**](./docs/API_REFERENCE.md) - Complete API documentation
 - ⌨️ [**CLI Reference**](./docs/CLI_REFERENCE.md) - Command-line tools
 - 💡 [**Examples**](./docs/EXAMPLES.md) - Strategy examples and tutorials
 - ⚙️ [**Configuration**](./docs/CONFIGURATION.md) - Setup and configuration
@@ -195,6 +246,11 @@ NELEUS_MAX_POSITION_SIZE=1.0
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
+│                   AI Agent Layer                            │
+│  LLM Reasoning • Memory • Tools • Communication            │
+└─────────────────────────────────────────────────────────────┘
+                              │
+┌─────────────────────────────────────────────────────────────┐
 │                     Python Layer                            │
 │  Strategies • Indicators • Config • Research • Reporting   │
 └─────────────────────────────────────────────────────────────┘
@@ -230,13 +286,20 @@ NELEUS_MAX_POSITION_SIZE=1.0
 
 ## Key Features
 
+### 🤖 AI Agent Framework
+- **AIAgent Base Class** - Abstract base for building intelligent trading agents
+- **Memory System** - Persistent memory with semantic search capabilities
+- **Tool Framework** - Extensible tools for market data, analysis, execution
+- **LLM Integration** - OpenAI, Anthropic, Ollama with provider abstraction
+- **Agent Communication** - Message bus for multi-agent coordination
+
+### ⚡ Trading Infrastructure
 - **Rust Core Engine** - High-performance event loop and order matching
 - **Python Strategy Layer** - Write strategies with NumPy, Pandas, SciPy
 - **Unified Adapter System** - ExecutionClient and DataClient traits
 - **Full Backtesting** - Position tracking, P&L calculation, performance metrics
 - **Risk Management** - Dynamic limits, drawdown protection, leverage controls
 - **Event Persistence** - TimescaleDB integration for replay and analysis
-- **Python Engine Control** - Full engine lifecycle management from Python
 
 ## License
 

@@ -451,6 +451,520 @@ def calculate_nav_distribution(equity_curve: list, initial_capital: float) -> di
         "time_underwater_pct": time_underwater * 100,
     }
 
+# Pre-built strategy configurations for Monte Carlo simulation
+MONTE_CARLO_STRATEGIES = {
+    "Momentum": {
+        "description": "Trend-following strategy that buys on upward momentum and sells on downward momentum",
+        "default_params": {
+            "lookback_period": 20,
+            "entry_threshold": 0.005,
+            "exit_threshold": 0.002,
+            "position_size": 0.10,
+            "stop_loss": 0.03,
+            "take_profit": 0.06,
+        },
+        "param_ranges": {
+            "lookback_period": (5, 50),
+            "entry_threshold": (0.001, 0.02),
+            "exit_threshold": (0.001, 0.01),
+            "position_size": (0.05, 0.25),
+            "stop_loss": (0.01, 0.10),
+            "take_profit": (0.02, 0.15),
+        }
+    },
+    "Mean Reversion": {
+        "description": "Counter-trend strategy that buys oversold conditions and sells overbought conditions",
+        "default_params": {
+            "lookback_period": 20,
+            "std_threshold": 2.0,
+            "position_size": 0.15,
+            "stop_loss": 0.04,
+            "take_profit": 0.05,
+            "max_hold_periods": 24,
+        },
+        "param_ranges": {
+            "lookback_period": (10, 60),
+            "std_threshold": (1.0, 3.5),
+            "position_size": (0.05, 0.30),
+            "stop_loss": (0.02, 0.08),
+            "take_profit": (0.02, 0.10),
+            "max_hold_periods": (6, 72),
+        }
+    },
+    "RSI Reversal": {
+        "description": "Mean reversion using RSI indicator for overbought/oversold detection",
+        "default_params": {
+            "rsi_period": 14,
+            "oversold_level": 30,
+            "overbought_level": 70,
+            "position_size": 0.12,
+            "stop_loss": 0.035,
+            "take_profit": 0.045,
+        },
+        "param_ranges": {
+            "rsi_period": (7, 28),
+            "oversold_level": (15, 40),
+            "overbought_level": (60, 85),
+            "position_size": (0.05, 0.25),
+            "stop_loss": (0.02, 0.08),
+            "take_profit": (0.02, 0.10),
+        }
+    },
+    "Breakout": {
+        "description": "Trades breakouts from consolidation ranges with momentum confirmation",
+        "default_params": {
+            "lookback_period": 24,
+            "breakout_threshold": 0.008,
+            "volume_multiplier": 1.5,
+            "position_size": 0.10,
+            "stop_loss": 0.025,
+            "take_profit": 0.08,
+        },
+        "param_ranges": {
+            "lookback_period": (12, 48),
+            "breakout_threshold": (0.003, 0.02),
+            "volume_multiplier": (1.0, 3.0),
+            "position_size": (0.05, 0.20),
+            "stop_loss": (0.015, 0.06),
+            "take_profit": (0.03, 0.15),
+        }
+    },
+    "Volatility Scalper": {
+        "description": "High-frequency scalping strategy targeting volatility expansion",
+        "default_params": {
+            "atr_period": 14,
+            "volatility_threshold": 1.5,
+            "position_size": 0.08,
+            "stop_loss": 0.015,
+            "take_profit": 0.025,
+            "max_trades_per_day": 10,
+        },
+        "param_ranges": {
+            "atr_period": (7, 21),
+            "volatility_threshold": (1.0, 3.0),
+            "position_size": (0.03, 0.15),
+            "stop_loss": (0.008, 0.03),
+            "take_profit": (0.01, 0.05),
+            "max_trades_per_day": (3, 20),
+        }
+    },
+    "Grid Trading": {
+        "description": "Market-making strategy with orders placed at regular price intervals",
+        "default_params": {
+            "grid_levels": 10,
+            "grid_spacing": 0.01,
+            "position_per_level": 0.05,
+            "stop_loss": 0.08,
+            "take_profit": 0.10,
+            "rebalance_threshold": 0.05,
+        },
+        "param_ranges": {
+            "grid_levels": (5, 20),
+            "grid_spacing": (0.005, 0.025),
+            "position_per_level": (0.02, 0.10),
+            "stop_loss": (0.05, 0.15),
+            "take_profit": (0.05, 0.20),
+            "rebalance_threshold": (0.02, 0.10),
+        }
+    },
+}
+
+# Scenario presets for Monte Carlo simulation
+MONTE_CARLO_SCENARIOS = {
+    "Normal Market": {
+        "description": "Typical market conditions with moderate volatility",
+        "vol_multiplier": 1.0,
+        "drift_adjustment": 0.0,
+        "jump_probability": 0.0,
+        "jump_magnitude": 0.0,
+    },
+    "High Volatility": {
+        "description": "Elevated volatility regime (2x normal)",
+        "vol_multiplier": 2.0,
+        "drift_adjustment": 0.0,
+        "jump_probability": 0.0,
+        "jump_magnitude": 0.0,
+    },
+    "Bull Market": {
+        "description": "Upward trending market with positive drift",
+        "vol_multiplier": 0.9,
+        "drift_adjustment": 0.0003,
+        "jump_probability": 0.01,
+        "jump_magnitude": 0.02,
+    },
+    "Bear Market": {
+        "description": "Downward trending market with negative drift",
+        "vol_multiplier": 1.3,
+        "drift_adjustment": -0.0004,
+        "jump_probability": 0.02,
+        "jump_magnitude": -0.03,
+    },
+    "Crash Scenario": {
+        "description": "Extreme market stress with large downward jumps",
+        "vol_multiplier": 3.0,
+        "drift_adjustment": -0.001,
+        "jump_probability": 0.05,
+        "jump_magnitude": -0.08,
+    },
+    "Low Volatility": {
+        "description": "Compressed volatility regime (0.5x normal)",
+        "vol_multiplier": 0.5,
+        "drift_adjustment": 0.0,
+        "jump_probability": 0.0,
+        "jump_magnitude": 0.0,
+    },
+    "Mean Reverting": {
+        "description": "Range-bound market with strong mean reversion",
+        "vol_multiplier": 0.8,
+        "drift_adjustment": 0.0,
+        "jump_probability": 0.0,
+        "jump_magnitude": 0.0,
+        "mean_reversion_strength": 0.1,
+    },
+    "Trending": {
+        "description": "Strong trending behavior with momentum",
+        "vol_multiplier": 1.1,
+        "drift_adjustment": 0.0002,
+        "jump_probability": 0.005,
+        "jump_magnitude": 0.015,
+        "autocorrelation": 0.15,
+    },
+}
+
+
+def run_monte_carlo_simulation(
+    returns: np.ndarray,
+    strategy_type: str,
+    params: dict,
+    scenario: dict,
+    n_simulations: int = 1000,
+    n_periods: int = 252,
+    initial_capital: float = 100000.0,
+    confidence_levels: list = [0.95, 0.99],
+) -> dict:
+    """
+    Run Monte Carlo simulation for a given strategy and market scenario.
+    
+    Uses Geometric Brownian Motion (GBM) with optional jumps and regime changes.
+    """
+    # Calculate base statistics from historical returns
+    mu = float(np.mean(returns))
+    sigma = float(np.std(returns))
+    
+    # Apply scenario adjustments
+    vol_mult = scenario.get("vol_multiplier", 1.0)
+    drift_adj = scenario.get("drift_adjustment", 0.0)
+    jump_prob = scenario.get("jump_probability", 0.0)
+    jump_mag = scenario.get("jump_magnitude", 0.0)
+    mean_rev = scenario.get("mean_reversion_strength", 0.0)
+    autocorr = scenario.get("autocorrelation", 0.0)
+    
+    adjusted_sigma = sigma * vol_mult
+    adjusted_mu = mu + drift_adj
+    
+    # Strategy-specific parameters
+    stop_loss = params.get("stop_loss", 0.03)
+    take_profit = params.get("take_profit", 0.06)
+    position_size = params.get("position_size", 0.10)
+    
+    # Initialize results storage
+    all_equity_curves = np.zeros((n_simulations, n_periods + 1))
+    all_equity_curves[:, 0] = initial_capital
+    
+    final_values = np.zeros(n_simulations)
+    max_drawdowns = np.zeros(n_simulations)
+    sharpe_ratios = np.zeros(n_simulations)
+    total_returns = np.zeros(n_simulations)
+    win_rates = np.zeros(n_simulations)
+    
+    np.random.seed(42)  # For reproducibility
+    
+    # Progress tracking
+    progress_interval = max(1, n_simulations // 20)  # Update every 5%
+    
+    for sim in range(n_simulations):
+        cash = initial_capital
+        position_value = 0.0  # Current value of position
+        position_shares = 0.0  # Number of shares/units held
+        position_side = 0  # 1 for long, -1 for short, 0 for flat
+        entry_price = 0.0
+        price = 100.0  # Starting price
+        peak_equity = initial_capital
+        max_dd = 0.0
+        
+        trade_returns = []
+        wins = 0
+        losses = 0
+        prev_return = 0.0
+        holding_periods = 0
+        
+        for t in range(n_periods):
+            # Generate return with scenario characteristics
+            random_return = np.random.normal(adjusted_mu, adjusted_sigma)
+            
+            # Add autocorrelation if specified
+            if autocorr > 0:
+                random_return = autocorr * prev_return + (1 - autocorr) * random_return
+            
+            # Add mean reversion if specified
+            if mean_rev > 0 and t > 0:
+                price_deviation = (price - 100.0) / 100.0
+                random_return -= mean_rev * price_deviation
+            
+            # Add jump component
+            if jump_prob > 0 and np.random.random() < jump_prob:
+                random_return += jump_mag * (0.5 + np.random.random())
+            
+            # Update price
+            price = price * (1 + random_return)
+            prev_return = random_return
+            
+            # Update position value based on price movement
+            if position_shares != 0:
+                position_value = position_shares * price
+                holding_periods += 1
+            
+            # Calculate current equity
+            equity = cash + position_value
+            
+            # Strategy logic
+            if position_side == 0:  # No position
+                # Entry logic based on strategy type
+                should_enter = False
+                direction = 0
+                
+                if strategy_type == "Momentum":
+                    # Use adaptive threshold based on volatility (0.5 to 1 sigma moves)
+                    threshold = params.get("entry_threshold", 0.02)
+                    # Scale to actual data characteristics
+                    adaptive_threshold = max(threshold, 0.5 * adjusted_sigma)
+                    if random_return > adaptive_threshold:
+                        should_enter = True
+                        direction = 1
+                    elif random_return < -adaptive_threshold:
+                        should_enter = True
+                        direction = -1
+                        
+                elif strategy_type == "Mean Reversion":
+                    # Use standard deviation threshold (more realistic)
+                    threshold = params.get("std_threshold", 2.0) * adjusted_sigma
+                    if random_return < -threshold:
+                        should_enter = True
+                        direction = 1
+                    elif random_return > threshold:
+                        should_enter = True
+                        direction = -1
+                        
+                elif strategy_type == "RSI Reversal":
+                    # More moderate RSI-like behavior (1.5-2 sigma)
+                    threshold = 1.8 * adjusted_sigma
+                    if random_return < -threshold:
+                        should_enter = True
+                        direction = 1
+                    elif random_return > threshold:
+                        should_enter = True
+                        direction = -1
+                        
+                elif strategy_type == "Breakout":
+                    # Adaptive breakout based on volatility
+                    threshold = params.get("breakout_threshold", 0.015)
+                    adaptive_threshold = max(threshold, 1.2 * adjusted_sigma)
+                    if abs(random_return) > adaptive_threshold:
+                        should_enter = True
+                        direction = 1 if random_return > 0 else -1
+                        
+                elif strategy_type == "Volatility Scalper":
+                    # Lower threshold for more frequent entries
+                    vol_threshold = params.get("volatility_threshold", 1.5) * adjusted_sigma
+                    if abs(random_return) > vol_threshold:
+                        should_enter = True
+                        direction = 1 if random_return > 0 else -1
+                        
+                elif strategy_type == "Grid Trading":
+                    # Grid trading enters positions more frequently
+                    if np.random.random() < 0.25:  # 25% chance each period
+                        should_enter = True
+                        direction = 1 if np.random.random() < 0.5 else -1
+                
+                if should_enter and direction != 0:
+                    # Enter position
+                    position_size_dollars = equity * position_size
+                    
+                    if direction == 1:  # Long
+                        position_shares = position_size_dollars / price
+                        cash -= position_size_dollars
+                    else:  # Short
+                        position_shares = -position_size_dollars / price
+                        cash += position_size_dollars
+                    
+                    position_side = direction
+                    entry_price = price
+                    position_value = position_shares * price
+                    holding_periods = 0
+                    
+            else:  # Have a position
+                # Calculate P&L
+                if position_side == 1:  # Long position
+                    pnl_pct = (price - entry_price) / entry_price
+                else:  # Short position
+                    pnl_pct = (entry_price - price) / entry_price
+                
+                should_exit = False
+                exit_reason = None
+                
+                # Stop loss
+                if pnl_pct <= -stop_loss:
+                    should_exit = True
+                    exit_reason = "stop_loss"
+                    losses += 1
+                
+                # Take profit
+                elif pnl_pct >= take_profit:
+                    should_exit = True
+                    exit_reason = "take_profit"
+                    wins += 1
+                
+                # Strategy-specific exits
+                elif strategy_type == "Mean Reversion":
+                    # Exit when price reverts or small profit
+                    if (abs(random_return) < adjusted_sigma * 0.5 and holding_periods > 3) or (pnl_pct > 0.01 and holding_periods > 5):
+                        should_exit = True
+                        exit_reason = "reversion"
+                        if pnl_pct > 0:
+                            wins += 1
+                        else:
+                            losses += 1
+                
+                elif strategy_type == "Grid Trading":
+                    # Exit after fixed periods or profit target
+                    max_hold = params.get("max_hold_periods", 10)
+                    if holding_periods >= max_hold or pnl_pct >= take_profit * 0.5:
+                        should_exit = True
+                        exit_reason = "grid_rebalance"
+                        if pnl_pct > 0:
+                            wins += 1
+                        else:
+                            losses += 1
+                
+                elif holding_periods > params.get("max_hold_periods", 50):
+                    # Max holding period exit
+                    should_exit = True
+                    exit_reason = "max_hold"
+                    if pnl_pct > 0:
+                        wins += 1
+                    else:
+                        losses += 1
+                
+                if should_exit:
+                    # Close position
+                    if position_side == 1:  # Close long
+                        cash += position_shares * price
+                    else:  # Close short
+                        cash -= abs(position_shares) * price
+                    
+                    # Record trade return
+                    trade_return = pnl_pct
+                    trade_returns.append(trade_return)
+                    
+                    # Reset position
+                    position_shares = 0.0
+                    position_value = 0.0
+                    position_side = 0
+                    entry_price = 0.0
+                    holding_periods = 0
+            
+            # Update equity (cash + position value)
+            equity = cash + (position_shares * price if position_shares != 0 else 0)
+            
+            # Update equity curve
+            all_equity_curves[sim, t + 1] = equity
+            
+            # Update drawdown
+            if equity > peak_equity:
+                peak_equity = equity
+            dd = (peak_equity - equity) / peak_equity if peak_equity > 0 else 0
+            if dd > max_dd:
+                max_dd = dd
+        
+        # Close any remaining position at end
+        if position_shares != 0:
+            if position_side == 1:
+                cash += position_shares * price
+            else:
+                cash -= abs(position_shares) * price
+            
+            if position_side == 1:
+                pnl_pct = (price - entry_price) / entry_price
+            else:
+                pnl_pct = (entry_price - price) / entry_price
+            
+            trade_returns.append(pnl_pct)
+            if pnl_pct > 0:
+                wins += 1
+            else:
+                losses += 1
+        
+        final_equity = cash
+        all_equity_curves[sim, -1] = final_equity
+        final_values[sim] = final_equity
+        max_drawdowns[sim] = max_dd
+        total_returns[sim] = (final_equity - initial_capital) / initial_capital
+        
+        # Calculate Sharpe ratio from trade returns
+        if len(trade_returns) > 1 and np.std(trade_returns) > 0:
+            sharpe_ratios[sim] = np.mean(trade_returns) / np.std(trade_returns) * np.sqrt(252 / max(1, len(trade_returns)))
+        else:
+            sharpe_ratios[sim] = 0.0
+            
+        total_trades = wins + losses
+        win_rates[sim] = wins / total_trades if total_trades > 0 else 0.0
+    
+    # Calculate statistics
+    results = {
+        "equity_curves": all_equity_curves,
+        "final_values": final_values,
+        "max_drawdowns": max_drawdowns,
+        "sharpe_ratios": sharpe_ratios,
+        "total_returns": total_returns,
+        "win_rates": win_rates,
+        
+        # Summary statistics
+        "mean_final_value": float(np.mean(final_values)),
+        "median_final_value": float(np.median(final_values)),
+        "std_final_value": float(np.std(final_values)),
+        "mean_return": float(np.mean(total_returns)),
+        "median_return": float(np.median(total_returns)),
+        "std_return": float(np.std(total_returns)),
+        "mean_max_drawdown": float(np.mean(max_drawdowns)),
+        "median_max_drawdown": float(np.median(max_drawdowns)),
+        "worst_drawdown": float(np.max(max_drawdowns)),
+        "mean_sharpe": float(np.mean(sharpe_ratios)),
+        "median_sharpe": float(np.median(sharpe_ratios)),
+        "mean_win_rate": float(np.mean(win_rates)),
+        
+        # Percentiles
+        "return_percentiles": {
+            f"p{int((1-cl)*100)}": float(np.percentile(total_returns, (1-cl)*100))
+            for cl in confidence_levels
+        },
+        "drawdown_percentiles": {
+            f"p{int(cl*100)}": float(np.percentile(max_drawdowns, cl*100))
+            for cl in confidence_levels
+        },
+        
+        # Risk metrics
+        "probability_of_loss": float(np.mean(total_returns < 0)),
+        "probability_of_ruin": float(np.mean(final_values < initial_capital * 0.5)),
+        "expected_shortfall_5": float(np.mean(total_returns[total_returns <= np.percentile(total_returns, 5)])),
+        
+        # Value at Risk
+        "var_95": float(np.percentile(total_returns, 5)),
+        "var_99": float(np.percentile(total_returns, 1)),
+        "cvar_95": float(np.mean(total_returns[total_returns <= np.percentile(total_returns, 5)])),
+    }
+    
+    return results
+
 # =============================================================================
 # Backtest Runner
 # =============================================================================
@@ -624,7 +1138,7 @@ def render_sidebar():
         
         page = st.radio(
             "Navigation",
-            ["Overview", "Risk Analysis", "Portfolio", "Backtest", "Live Trading", "Deployment"],
+            ["Overview", "Risk Analysis", "Monte Carlo", "Portfolio", "Backtest", "Live Trading", "Deployment"],
             label_visibility="collapsed"
         )
         
@@ -755,13 +1269,14 @@ def render_overview():
 def render_risk_analysis():
     """Render Risk Analysis page with comprehensive analytics."""
     st.title("Risk Analysis")
+    st.caption("Comprehensive market risk analytics with distribution analysis, drawdowns, correlations, and risk decomposition")
     
+    # Main content area
     col1, col2 = st.columns([1, 3])
     with col1:
         assets = fetch_market_meta()
         
-        # Multi-asset selection for correlation
-        st.markdown("**Single Asset Analysis**")
+        st.markdown("**Asset Selection**")
         selected_asset = st.selectbox("Primary Asset", assets, index=0, key="risk_asset")
         days = st.slider("Lookback (days)", 7, 180, 30)
         
@@ -806,7 +1321,7 @@ def render_risk_analysis():
         st.markdown("---")
         
         # Tabs for different analysis views
-        tab1, tab2, tab3, tab4 = st.tabs(["📊 Distribution", "📉 Drawdown", "🔗 Correlation", "⚖️ Risk Decomposition"])
+        tab1, tab2, tab3, tab4 = st.tabs(["Distribution", "Drawdown", "Correlation", "Risk Decomposition"])
         
         with tab1:
             col1, col2 = st.columns(2)
@@ -1175,11 +1690,11 @@ def render_risk_analysis():
                     # Risk assessment
                     ratio = risk_decomp.get('variance_ratio', 0)
                     if ratio > 1.5:
-                        st.error("⚠️ Significant downside skew detected")
+                        st.error("Significant downside skew detected")
                     elif ratio > 1.1:
-                        st.warning("⚡ Moderate downside bias")
+                        st.warning("Moderate downside bias")
                     else:
-                        st.success("✅ Balanced risk profile")
+                        st.success("Balanced risk profile")
         
         # Summary section
         st.markdown("---")
@@ -1206,6 +1721,840 @@ def render_risk_analysis():
             st.write(f"Calmar: {metrics.get('calmar_ratio', 0):.3f}")
     else:
         st.warning("Unable to fetch market data.")
+
+
+def render_monte_carlo():
+    """Render Monte Carlo Simulation page with comprehensive scenario analysis."""
+    st.title("Monte Carlo Simulation")
+    st.caption("Advanced Monte Carlo simulation for strategy backtesting across multiple market scenarios with configurable parameters")
+    
+    # Sidebar for Monte Carlo parameters
+    with st.sidebar:
+        st.markdown("---")
+        st.markdown("**Simulation Configuration**")
+        
+        # Strategy selection
+        mc_strategy = st.selectbox(
+            "Strategy",
+            list(MONTE_CARLO_STRATEGIES.keys()),
+            index=0,
+            key="mc_strategy"
+        )
+        
+        strategy_config = MONTE_CARLO_STRATEGIES[mc_strategy]
+        st.caption(strategy_config["description"])
+        
+        # Scenario selection
+        st.markdown("**Market Scenario**")
+        mc_scenario = st.selectbox(
+            "Scenario",
+            list(MONTE_CARLO_SCENARIOS.keys()),
+            index=0,
+            key="mc_scenario"
+        )
+        scenario_config = MONTE_CARLO_SCENARIOS[mc_scenario]
+        st.caption(scenario_config["description"])
+        
+        # Simulation parameters
+        st.markdown("**Simulation Settings**")
+        n_simulations = st.slider("Simulations", 100, 5000, 1000, step=100, key="mc_n_sims")
+        n_periods = st.slider("Periods (days)", 30, 504, 252, key="mc_n_periods")
+        initial_capital = st.number_input("Initial Capital ($)", 10000, 10000000, 100000, step=10000, key="mc_capital")
+        
+        # Initialize strategy_params with defaults
+        strategy_params = strategy_config["default_params"].copy()
+        
+        # Strategy parameters (expandable)
+        with st.expander("Strategy Parameters", expanded=False):
+            for param_name, default_val in strategy_config["default_params"].items():
+                param_range = strategy_config["param_ranges"].get(param_name, (0, 1))
+                
+                # Format label
+                label = param_name.replace("_", " ").title()
+                
+                if isinstance(default_val, int):
+                    strategy_params[param_name] = st.slider(
+                        label, 
+                        int(param_range[0]), 
+                        int(param_range[1]), 
+                        int(default_val),
+                        key=f"mc_param_{param_name}"
+                    )
+                else:
+                    strategy_params[param_name] = st.slider(
+                        label,
+                        float(param_range[0]),
+                        float(param_range[1]),
+                        float(default_val),
+                        format="%.3f",
+                        key=f"mc_param_{param_name}"
+                    )
+        
+        # Scenario adjustments (expandable)
+        with st.expander("Scenario Adjustments", expanded=False):
+            custom_vol_mult = st.slider(
+                "Volatility Multiplier",
+                0.1, 5.0,
+                float(scenario_config.get("vol_multiplier", 1.0)),
+                format="%.2f",
+                key="mc_vol_mult"
+            )
+            custom_drift = st.slider(
+                "Drift Adjustment",
+                -0.002, 0.002,
+                float(scenario_config.get("drift_adjustment", 0.0)),
+                format="%.4f",
+                key="mc_drift"
+            )
+            custom_jump_prob = st.slider(
+                "Jump Probability",
+                0.0, 0.1,
+                float(scenario_config.get("jump_probability", 0.0)),
+                format="%.3f",
+                key="mc_jump_prob"
+            )
+            custom_jump_mag = st.slider(
+                "Jump Magnitude",
+                -0.15, 0.15,
+                float(scenario_config.get("jump_magnitude", 0.0)),
+                format="%.3f",
+                key="mc_jump_mag"
+            )
+            
+            # Update scenario with custom values
+            scenario_config = scenario_config.copy()
+            scenario_config["vol_multiplier"] = custom_vol_mult
+            scenario_config["drift_adjustment"] = custom_drift
+            scenario_config["jump_probability"] = custom_jump_prob
+            scenario_config["jump_magnitude"] = custom_jump_mag
+    
+    # Main content
+    assets = fetch_market_meta()
+    
+    col1, col2 = st.columns([1, 2])
+    with col1:
+        selected_asset = st.selectbox("Asset", assets, index=0, key="mc_asset")
+    with col2:
+        days = st.slider("Historical Lookback (days)", 30, 180, 90, key="mc_days")
+    
+    st.markdown("---")
+    
+    # Run simulation button - prominent and clearly visible
+    run_mc = st.button("▶ Run Monte Carlo Simulation", type="primary", use_container_width=True, key="run_mc_btn")
+    
+    # Fetch historical data for calibration
+    df = fetch_market_data(selected_asset, days)
+    
+    if df is not None and len(df) > 0:
+        returns = df["returns"].dropna()
+        
+        # Show calibration info
+        col_a, col_b, col_c = st.columns(3)
+        with col_a:
+            st.metric("Data Points", len(returns))
+        with col_b:
+            st.metric("Mean Return", f"{returns.mean()*100:.3f}%")
+        with col_c:
+            st.metric("Volatility", f"{returns.std()*100:.2f}%")
+        
+        if run_mc or st.session_state.get("mc_results") is not None:
+            if run_mc:
+                with st.spinner(f"Running {n_simulations:,} Monte Carlo simulations..."):
+                    try:
+                        mc_results = run_monte_carlo_simulation(
+                            returns=np.array(returns.values),
+                            strategy_type=mc_strategy,
+                            params=strategy_params,
+                            scenario=scenario_config,
+                            n_simulations=n_simulations,
+                            n_periods=n_periods,
+                            initial_capital=initial_capital,
+                        )
+                        st.session_state["mc_results"] = mc_results
+                        
+                        # Show completion with statistics
+                        non_zero = np.sum(np.abs(mc_results['total_returns']) > 0.001)
+                        st.success(f"Simulation complete! Analyzed {n_simulations:,} scenarios over {n_periods} days. {non_zero}/{n_simulations} simulations had trading activity.")
+                        
+                    except Exception as e:
+                        st.error(f"Simulation error: {str(e)}")
+                        import traceback
+                        st.code(traceback.format_exc())
+                        return
+            else:
+                mc_results = st.session_state["mc_results"]
+            
+            st.markdown("---")
+            
+            # Key Metrics Row
+            st.subheader("Simulation Results")
+            st.caption(f"Strategy: {mc_strategy} | Scenario: {mc_scenario} | Asset: {selected_asset}")
+            
+            st.markdown("---")
+            
+            mc_col1, mc_col2, mc_col3, mc_col4, mc_col5, mc_col6 = st.columns(6)
+            
+            with mc_col1:
+                mean_ret = mc_results["mean_return"] * 100
+                delta_color = "normal" if mean_ret >= 0 else "inverse"
+                st.metric("Mean Return", f"{mean_ret:.1f}%", delta_color=delta_color)
+            
+            with mc_col2:
+                median_ret = mc_results["median_return"] * 100
+                st.metric("Median Return", f"{median_ret:.1f}%")
+            
+            with mc_col3:
+                mean_dd = mc_results["mean_max_drawdown"] * 100
+                st.metric("Mean Max DD", f"{mean_dd:.1f}%")
+            
+            with mc_col4:
+                prob_loss = mc_results["probability_of_loss"] * 100
+                st.metric("P(Loss)", f"{prob_loss:.1f}%")
+            
+            with mc_col5:
+                mean_sharpe = mc_results["mean_sharpe"]
+                st.metric("Mean Sharpe", f"{mean_sharpe:.2f}")
+            
+            with mc_col6:
+                win_rate = mc_results["mean_win_rate"] * 100
+                st.metric("Win Rate", f"{win_rate:.1f}%")
+            
+            st.markdown("---")
+            
+            # Charts row
+            st.subheader("Distribution Analysis")
+            mc_chart_col1, mc_chart_col2 = st.columns(2)
+            
+            with mc_chart_col1:
+                st.markdown("**Equity Curve Distribution**")
+                
+                equity_curves = mc_results["equity_curves"]
+                
+                fig = go.Figure()
+                
+                # Plot percentile bands
+                periods = np.arange(equity_curves.shape[1])
+                
+                p5 = np.percentile(equity_curves, 5, axis=0)
+                p25 = np.percentile(equity_curves, 25, axis=0)
+                p50 = np.percentile(equity_curves, 50, axis=0)
+                p75 = np.percentile(equity_curves, 75, axis=0)
+                p95 = np.percentile(equity_curves, 95, axis=0)
+                
+                # 5-95% range
+                fig.add_trace(go.Scatter(
+                    x=periods, y=p95,
+                    mode='lines',
+                    line=dict(width=0),
+                    showlegend=False,
+                    hoverinfo='skip'
+                ))
+                fig.add_trace(go.Scatter(
+                    x=periods, y=p5,
+                    mode='lines',
+                    line=dict(width=0),
+                    fill='tonexty',
+                    fillcolor='rgba(47, 145, 113, 0.1)',
+                    name='5th-95th Percentile'
+                ))
+                
+                # 25-75% range
+                fig.add_trace(go.Scatter(
+                    x=periods, y=p75,
+                    mode='lines',
+                    line=dict(width=0),
+                    showlegend=False,
+                    hoverinfo='skip'
+                ))
+                fig.add_trace(go.Scatter(
+                    x=periods, y=p25,
+                    mode='lines',
+                    line=dict(width=0),
+                    fill='tonexty',
+                    fillcolor='rgba(47, 145, 113, 0.25)',
+                    name='25th-75th Percentile'
+                ))
+                
+                # Median line
+                fig.add_trace(go.Scatter(
+                    x=periods, y=p50,
+                    mode='lines',
+                    line=dict(color='#2f9171', width=2),
+                    name='Median'
+                ))
+                
+                # Initial capital reference
+                fig.add_hline(
+                    y=initial_capital, 
+                    line_dash="dash", 
+                    line_color="#666",
+                    annotation_text="Initial Capital",
+                    annotation_position="right"
+                )
+                
+                fig.update_layout(
+                    height=400,
+                    margin=dict(l=0, r=0, t=20, b=0),
+                    xaxis_title="Period (days)",
+                    yaxis_title="Portfolio Value ($)",
+                    template="plotly_dark",
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0)
+                )
+                fig.update_xaxes(gridcolor='#1a1a24')
+                fig.update_yaxes(gridcolor='#1a1a24')
+                
+                st.plotly_chart(fig, use_container_width=True, key="mc_equity_curves")
+            
+            with mc_chart_col2:
+                st.markdown("**Final Value Distribution**")
+                
+                final_values = mc_results["final_values"]
+                
+                fig = go.Figure()
+                fig.add_trace(go.Histogram(
+                    x=final_values,
+                    nbinsx=50,
+                    marker_color='#2f9171',
+                    opacity=0.7
+                ))
+                
+                # Add VaR lines
+                var_5 = np.percentile(final_values, 5)
+                var_1 = np.percentile(final_values, 1)
+                
+                fig.add_vline(x=var_5, line_dash="dash", line_color="#f59e0b",
+                             annotation_text=f"VaR 95%: ${var_5:,.0f}",
+                             annotation_position="top left")
+                fig.add_vline(x=var_1, line_dash="dash", line_color="#ef4444",
+                             annotation_text=f"VaR 99%: ${var_1:,.0f}",
+                             annotation_position="top left")
+                fig.add_vline(x=initial_capital, line_dash="solid", line_color="#666",
+                             annotation_text="Initial",
+                             annotation_position="top right")
+                
+                fig.update_layout(
+                    height=400,
+                    margin=dict(l=0, r=0, t=20, b=0),
+                    xaxis_title="Final Portfolio Value ($)",
+                    yaxis_title="Frequency",
+                    template="plotly_dark",
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    showlegend=False
+                )
+                fig.update_xaxes(gridcolor='#1a1a24')
+                fig.update_yaxes(gridcolor='#1a1a24')
+                
+                st.plotly_chart(fig, use_container_width=True, key="mc_final_dist")
+            
+            # Second row of charts
+            mc_chart_col3, mc_chart_col4 = st.columns(2)
+            
+            with mc_chart_col3:
+                st.markdown("**Return Distribution**")
+                
+                total_returns = mc_results["total_returns"] * 100
+                
+                fig = go.Figure()
+                fig.add_trace(go.Histogram(
+                    x=total_returns,
+                    nbinsx=50,
+                    marker_color='#6366f1',
+                    opacity=0.7
+                ))
+                
+                # Add reference lines
+                fig.add_vline(x=0, line_dash="solid", line_color="#666")
+                fig.add_vline(x=np.mean(total_returns), line_dash="dash", line_color="#2f9171",
+                             annotation_text=f"Mean: {np.mean(total_returns):.1f}%",
+                             annotation_position="top right")
+                
+                fig.update_layout(
+                    height=350,
+                    margin=dict(l=0, r=0, t=20, b=0),
+                    xaxis_title="Total Return (%)",
+                    yaxis_title="Frequency",
+                    template="plotly_dark",
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    showlegend=False
+                )
+                fig.update_xaxes(gridcolor='#1a1a24')
+                fig.update_yaxes(gridcolor='#1a1a24')
+                
+                st.plotly_chart(fig, use_container_width=True, key="mc_return_dist")
+            
+            with mc_chart_col4:
+                st.markdown("**Max Drawdown Distribution**")
+                
+                max_dds = mc_results["max_drawdowns"] * 100
+                
+                fig = go.Figure()
+                fig.add_trace(go.Histogram(
+                    x=max_dds,
+                    nbinsx=50,
+                    marker_color='#ef4444',
+                    opacity=0.7
+                ))
+                
+                # Add percentile lines
+                p95_dd = np.percentile(max_dds, 95)
+                fig.add_vline(x=p95_dd, line_dash="dash", line_color="#f59e0b",
+                             annotation_text=f"95th Pctl: {p95_dd:.1f}%",
+                             annotation_position="top left")
+                
+                fig.update_layout(
+                    height=350,
+                    margin=dict(l=0, r=0, t=20, b=0),
+                    xaxis_title="Max Drawdown (%)",
+                    yaxis_title="Frequency",
+                    template="plotly_dark",
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    showlegend=False
+                )
+                fig.update_xaxes(gridcolor='#1a1a24')
+                fig.update_yaxes(gridcolor='#1a1a24')
+                
+                st.plotly_chart(fig, use_container_width=True, key="mc_dd_dist")
+            
+            # Third row - Advanced analytics
+            st.markdown("---")
+            st.subheader("Advanced Analytics")
+            
+            mc_chart_col5, mc_chart_col6 = st.columns(2)
+            
+            with mc_chart_col5:
+                st.markdown("**Risk-Reward Scatter**")
+                
+                total_rets = mc_results["total_returns"] * 100
+                max_dds_scatter = mc_results["max_drawdowns"] * 100
+                
+                fig = go.Figure()
+                
+                # Color by Sharpe ratio
+                sharpes = mc_results["sharpe_ratios"]
+                
+                fig.add_trace(go.Scatter(
+                    x=max_dds_scatter,
+                    y=total_rets,
+                    mode='markers',
+                    marker=dict(
+                        size=6,
+                        color=sharpes,
+                        colorscale='RdYlGn',
+                        showscale=True,
+                        colorbar=dict(title="Sharpe"),
+                        line=dict(width=0.5, color='#1a1a24')
+                    ),
+                    text=[f"Return: {r:.1f}%<br>DD: {d:.1f}%<br>Sharpe: {s:.2f}" 
+                          for r, d, s in zip(total_rets, max_dds_scatter, sharpes)],
+                    hovertemplate='%{text}<extra></extra>'
+                ))
+                
+                # Add quadrant lines
+                fig.add_hline(y=0, line_dash="solid", line_color="#666", line_width=1)
+                fig.add_vline(x=np.median(max_dds_scatter), line_dash="dash", line_color="#666", line_width=1)
+                
+                fig.update_layout(
+                    height=350,
+                    margin=dict(l=0, r=0, t=20, b=0),
+                    xaxis_title="Max Drawdown (%)",
+                    yaxis_title="Total Return (%)",
+                    template="plotly_dark",
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    showlegend=False
+                )
+                fig.update_xaxes(gridcolor='#1a1a24')
+                fig.update_yaxes(gridcolor='#1a1a24')
+                
+                st.plotly_chart(fig, use_container_width=True, key="mc_risk_reward")
+            
+            with mc_chart_col6:
+                st.markdown("**Sharpe Ratio Distribution**")
+                
+                sharpe_values = mc_results["sharpe_ratios"]
+                
+                fig = go.Figure()
+                fig.add_trace(go.Histogram(
+                    x=sharpe_values,
+                    nbinsx=40,
+                    marker_color='#10b981',
+                    opacity=0.7
+                ))
+                
+                # Add reference lines
+                mean_sharpe_val = np.mean(sharpe_values)
+                median_sharpe_val = np.median(sharpe_values)
+                
+                fig.add_vline(x=mean_sharpe_val, line_dash="dash", line_color="#2f9171",
+                             annotation_text=f"Mean: {mean_sharpe_val:.2f}",
+                             annotation_position="top right")
+                fig.add_vline(x=1.0, line_dash="dot", line_color="#f59e0b",
+                             annotation_text="Threshold: 1.0",
+                             annotation_position="top left")
+                
+                fig.update_layout(
+                    height=350,
+                    margin=dict(l=0, r=0, t=20, b=0),
+                    xaxis_title="Sharpe Ratio",
+                    yaxis_title="Frequency",
+                    template="plotly_dark",
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    showlegend=False
+                )
+                fig.update_xaxes(gridcolor='#1a1a24')
+                fig.update_yaxes(gridcolor='#1a1a24')
+                
+                st.plotly_chart(fig, use_container_width=True, key="mc_sharpe_dist")
+            
+            # Fourth row - Win rate and underwater
+            mc_chart_col7, mc_chart_col8 = st.columns(2)
+            
+            with mc_chart_col7:
+                st.markdown("**Win Rate vs Return**")
+                
+                win_rates_pct = mc_results["win_rates"] * 100
+                
+                fig = go.Figure()
+                
+                fig.add_trace(go.Scatter(
+                    x=win_rates_pct,
+                    y=total_rets,
+                    mode='markers',
+                    marker=dict(
+                        size=6,
+                        color=total_rets,
+                        colorscale='RdYlGn',
+                        showscale=True,
+                        colorbar=dict(title="Return %"),
+                        line=dict(width=0.5, color='#1a1a24')
+                    ),
+                    text=[f"Win Rate: {w:.1f}%<br>Return: {r:.1f}%" 
+                          for w, r in zip(win_rates_pct, total_rets)],
+                    hovertemplate='%{text}<extra></extra>'
+                ))
+                
+                # Add reference line at 50% win rate
+                fig.add_vline(x=50, line_dash="dot", line_color="#666", line_width=1)
+                fig.add_hline(y=0, line_dash="solid", line_color="#666", line_width=1)
+                
+                fig.update_layout(
+                    height=350,
+                    margin=dict(l=0, r=0, t=20, b=0),
+                    xaxis_title="Win Rate (%)",
+                    yaxis_title="Total Return (%)",
+                    template="plotly_dark",
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    showlegend=False
+                )
+                fig.update_xaxes(gridcolor='#1a1a24')
+                fig.update_yaxes(gridcolor='#1a1a24')
+                
+                st.plotly_chart(fig, use_container_width=True, key="mc_winrate_scatter")
+            
+            with mc_chart_col8:
+                st.markdown("**Underwater Plot (Median Simulation)**")
+                
+                # Calculate drawdown over time for median simulation
+                median_idx = np.argsort(mc_results["total_returns"])[len(mc_results["total_returns"])//2]
+                equity_curve = mc_results["equity_curves"][median_idx]
+                
+                running_max = np.maximum.accumulate(equity_curve)
+                drawdown_series = (equity_curve - running_max) / running_max * 100
+                
+                fig = go.Figure()
+                
+                fig.add_trace(go.Scatter(
+                    x=np.arange(len(drawdown_series)),
+                    y=drawdown_series,
+                    fill='tozeroy',
+                    fillcolor='rgba(239, 68, 68, 0.3)',
+                    line=dict(color='#ef4444', width=2),
+                    name='Drawdown'
+                ))
+                
+                fig.add_hline(y=0, line_dash="solid", line_color="#666", line_width=1)
+                
+                fig.update_layout(
+                    height=350,
+                    margin=dict(l=0, r=0, t=20, b=0),
+                    xaxis_title="Period (days)",
+                    yaxis_title="Drawdown (%)",
+                    template="plotly_dark",
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    showlegend=False
+                )
+                fig.update_xaxes(gridcolor='#1a1a24')
+                fig.update_yaxes(gridcolor='#1a1a24')
+                
+                st.plotly_chart(fig, use_container_width=True, key="mc_underwater")
+            
+            # Fifth row - Percentile analysis and rolling metrics
+            st.markdown("---")
+            st.subheader("Percentile Analysis")
+            
+            mc_chart_col9, mc_chart_col10 = st.columns(2)
+            
+            with mc_chart_col9:
+                st.markdown("**Return Percentiles**")
+                
+                percentiles = [1, 5, 10, 25, 50, 75, 90, 95, 99]
+                percentile_values = [np.percentile(total_rets, p) for p in percentiles]
+                
+                colors = ['#ef4444' if v < 0 else '#10b981' for v in percentile_values]
+                
+                fig = go.Figure()
+                fig.add_trace(go.Bar(
+                    x=[f"P{p}" for p in percentiles],
+                    y=percentile_values,
+                    marker_color=colors,
+                    text=[f"{v:.1f}%" for v in percentile_values],
+                    textposition='outside',
+                    hovertemplate='%{x}: %{y:.2f}%<extra></extra>'
+                ))
+                
+                fig.add_hline(y=0, line_dash="solid", line_color="#666", line_width=1)
+                
+                fig.update_layout(
+                    height=350,
+                    margin=dict(l=0, r=0, t=40, b=0),
+                    xaxis_title="Percentile",
+                    yaxis_title="Return (%)",
+                    template="plotly_dark",
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    showlegend=False
+                )
+                fig.update_xaxes(gridcolor='#1a1a24')
+                fig.update_yaxes(gridcolor='#1a1a24')
+                
+                st.plotly_chart(fig, use_container_width=True, key="mc_percentiles")
+            
+            with mc_chart_col10:
+                st.markdown("**Rolling 30-Day Returns (Best/Median/Worst)**")
+                
+                equity_curves = mc_results["equity_curves"]
+                
+                # Calculate rolling returns for best, median, worst scenarios
+                best_idx = np.argmax(mc_results["total_returns"])
+                worst_idx = np.argmin(mc_results["total_returns"])
+                median_idx = np.argsort(mc_results["total_returns"])[len(mc_results["total_returns"])//2]
+                
+                window = min(30, n_periods // 4)
+                
+                def rolling_return(equity_curve, window):
+                    returns = []
+                    for i in range(window, len(equity_curve)):
+                        ret = (equity_curve[i] / equity_curve[i-window] - 1) * 100
+                        returns.append(ret)
+                    return returns
+                
+                fig = go.Figure()
+                
+                x_vals = np.arange(window, equity_curves.shape[1])
+                
+                fig.add_trace(go.Scatter(
+                    x=x_vals,
+                    y=rolling_return(equity_curves[best_idx], window),
+                    mode='lines',
+                    line=dict(color='#10b981', width=2),
+                    name='Best Case'
+                ))
+                
+                fig.add_trace(go.Scatter(
+                    x=x_vals,
+                    y=rolling_return(equity_curves[median_idx], window),
+                    mode='lines',
+                    line=dict(color='#6366f1', width=2),
+                    name='Median Case'
+                ))
+                
+                fig.add_trace(go.Scatter(
+                    x=x_vals,
+                    y=rolling_return(equity_curves[worst_idx], window),
+                    mode='lines',
+                    line=dict(color='#ef4444', width=2),
+                    name='Worst Case'
+                ))
+                
+                fig.add_hline(y=0, line_dash="solid", line_color="#666", line_width=1)
+                
+                fig.update_layout(
+                    height=350,
+                    margin=dict(l=0, r=0, t=20, b=0),
+                    xaxis_title="Period (days)",
+                    yaxis_title=f"{window}-Day Return (%)",
+                    template="plotly_dark",
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0)
+                )
+                fig.update_xaxes(gridcolor='#1a1a24')
+                fig.update_yaxes(gridcolor='#1a1a24')
+                
+                st.plotly_chart(fig, use_container_width=True, key="mc_rolling_returns")
+            
+            # Detailed statistics table
+            st.markdown("---")
+            st.subheader("Detailed Statistics")
+            
+            stats_col1, stats_col2, stats_col3 = st.columns(3)
+            
+            with stats_col1:
+                st.markdown("**Performance Metrics**")
+                perf_data = {
+                    "Metric": [
+                        "Mean Final Value",
+                        "Median Final Value",
+                        "Std Dev Final Value",
+                        "Mean Return",
+                        "Median Return",
+                        "Std Dev Return",
+                        "Mean Sharpe Ratio",
+                        "Mean Win Rate",
+                    ],
+                    "Value": [
+                        f"${mc_results['mean_final_value']:,.0f}",
+                        f"${mc_results['median_final_value']:,.0f}",
+                        f"${mc_results['std_final_value']:,.0f}",
+                        f"{mc_results['mean_return']*100:.2f}%",
+                        f"{mc_results['median_return']*100:.2f}%",
+                        f"{mc_results['std_return']*100:.2f}%",
+                        f"{mc_results['mean_sharpe']:.3f}",
+                        f"{mc_results['mean_win_rate']*100:.1f}%",
+                    ]
+                }
+                st.dataframe(pd.DataFrame(perf_data), hide_index=True, height=320)
+            
+            with stats_col2:
+                st.markdown("**Risk Metrics**")
+                risk_mc_data = {
+                    "Metric": [
+                        "Mean Max Drawdown",
+                        "Median Max Drawdown",
+                        "Worst Drawdown",
+                        "VaR (95%)",
+                        "VaR (99%)",
+                        "CVaR (95%)",
+                        "Probability of Loss",
+                        "Probability of Ruin",
+                    ],
+                    "Value": [
+                        f"{mc_results['mean_max_drawdown']*100:.2f}%",
+                        f"{mc_results['median_max_drawdown']*100:.2f}%",
+                        f"{mc_results['worst_drawdown']*100:.2f}%",
+                        f"{mc_results['var_95']*100:.2f}%",
+                        f"{mc_results['var_99']*100:.2f}%",
+                        f"{mc_results['cvar_95']*100:.2f}%",
+                        f"{mc_results['probability_of_loss']*100:.1f}%",
+                        f"{mc_results['probability_of_ruin']*100:.2f}%",
+                    ]
+                }
+                st.dataframe(pd.DataFrame(risk_mc_data), hide_index=True, height=320)
+            
+            with stats_col3:
+                st.markdown("**Scenario Configuration**")
+                scenario_data = {
+                    "Parameter": [
+                        "Strategy Type",
+                        "Market Scenario",
+                        "Simulations",
+                        "Periods",
+                        "Initial Capital",
+                        "Volatility Multiplier",
+                        "Drift Adjustment",
+                        "Jump Probability",
+                    ],
+                    "Value": [
+                        mc_strategy,
+                        mc_scenario,
+                        f"{n_simulations:,}",
+                        f"{n_periods} days",
+                        f"${initial_capital:,.0f}",
+                        f"{scenario_config.get('vol_multiplier', 1.0):.2f}x",
+                        f"{scenario_config.get('drift_adjustment', 0.0)*100:.3f}%",
+                        f"{scenario_config.get('jump_probability', 0.0)*100:.1f}%",
+                    ]
+                }
+                st.dataframe(pd.DataFrame(scenario_data), hide_index=True, height=320)
+            
+            # Risk assessment summary
+            st.markdown("---")
+            st.subheader("Risk Assessment")
+            
+            prob_loss = mc_results["probability_of_loss"]
+            prob_ruin = mc_results["probability_of_ruin"]
+            mean_dd = mc_results["mean_max_drawdown"]
+            mean_sharpe = mc_results["mean_sharpe"]
+            
+            assess_col1, assess_col2, assess_col3 = st.columns(3)
+            
+            with assess_col1:
+                if prob_loss < 0.3:
+                    st.success(f"Low loss probability ({prob_loss*100:.1f}%)")
+                elif prob_loss < 0.5:
+                    st.warning(f"Moderate loss probability ({prob_loss*100:.1f}%)")
+                else:
+                    st.error(f"High loss probability ({prob_loss*100:.1f}%)")
+            
+            with assess_col2:
+                if mean_dd < 0.15:
+                    st.success(f"Acceptable drawdown profile ({mean_dd*100:.1f}%)")
+                elif mean_dd < 0.25:
+                    st.warning(f"Elevated drawdown risk ({mean_dd*100:.1f}%)")
+                else:
+                    st.error(f"Severe drawdown risk ({mean_dd*100:.1f}%)")
+            
+            with assess_col3:
+                if mean_sharpe > 1.0:
+                    st.success(f"Favorable risk-adjusted returns (Sharpe: {mean_sharpe:.2f})")
+                elif mean_sharpe > 0.5:
+                    st.warning(f"Moderate risk-adjusted returns (Sharpe: {mean_sharpe:.2f})")
+                else:
+                    st.error(f"Poor risk-adjusted returns (Sharpe: {mean_sharpe:.2f})")
+        
+        else:
+            # Initial state - show instructions and available options
+            st.info("Configure simulation parameters in the sidebar and click the 'Run Monte Carlo Simulation' button above to generate projections.")
+            
+            # Show strategy description
+            st.markdown("---")
+            st.subheader("Available Strategies")
+            
+            strat_cols = st.columns(3)
+            for i, (strat_name, strat_config) in enumerate(MONTE_CARLO_STRATEGIES.items()):
+                with strat_cols[i % 3]:
+                    st.markdown(f"**{strat_name}**")
+                    st.caption(strat_config["description"])
+                    
+                    # Show default parameters
+                    with st.expander("Default Parameters"):
+                        for param, value in strat_config["default_params"].items():
+                            st.text(f"{param.replace('_', ' ').title()}: {value}")
+            
+            st.markdown("---")
+            st.subheader("Available Scenarios")
+            
+            scen_cols = st.columns(4)
+            for i, (scen_name, scen_config) in enumerate(MONTE_CARLO_SCENARIOS.items()):
+                with scen_cols[i % 4]:
+                    st.markdown(f"**{scen_name}**")
+                    st.caption(scen_config["description"])
+                    
+                    # Show scenario parameters
+                    with st.expander("Scenario Details"):
+                        st.text(f"Vol Mult: {scen_config.get('vol_multiplier', 1.0):.2f}x")
+                        st.text(f"Drift: {scen_config.get('drift_adjustment', 0.0)*100:.3f}%")
+                        st.text(f"Jump Prob: {scen_config.get('jump_probability', 0.0)*100:.1f}%")
+    else:
+        st.error("Unable to fetch market data. Please check your connection and try again.")
 
 
 def render_portfolio():
@@ -1912,6 +3261,8 @@ if page == "Overview":
     render_overview()
 elif page == "Risk Analysis":
     render_risk_analysis()
+elif page == "Monte Carlo":
+    render_monte_carlo()
 elif page == "Portfolio":
     render_portfolio()
 elif page == "Backtest":

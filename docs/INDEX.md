@@ -10,6 +10,11 @@ Welcome to the Neleus trading framework documentation! Neleus is a high-performa
     <p>Installation, quick start, and your first strategy</p>
   </a>
   
+  <a href="./USAGE.md" class="card">
+    <h3>📘 Usage Guide</h3>
+    <p>Comprehensive guide for AI agents and Rust core</p>
+  </a>
+  
   <a href="./API_REFERENCE.md" class="card">
     <h3>📚 API Reference</h3>
     <p>Complete API documentation for all classes and methods</p>
@@ -34,6 +39,12 @@ Welcome to the Neleus trading framework documentation! Neleus is a high-performa
 - [Installation & Setup](./GETTING_STARTED.md)
 - [Quick Start Guide](./GETTING_STARTED.md#quick-start-your-first-strategy)
 - [Project Structure](./GETTING_STARTED.md#create-a-new-project)
+- **[Usage Guide](./USAGE.md)** - **NEW!** Comprehensive usage documentation
+  - AI Agent Development
+  - Rust Core Usage
+  - CLI Reference
+  - Configuration Guide
+  - Best Practices
 
 ### Core Documentation
 - **[API Reference](./API_REFERENCE.md)** - Complete API documentation

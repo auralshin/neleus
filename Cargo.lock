@@ -20,6 +20,61 @@ dependencies = [
 ]
 
 [[package]]
+name = "agent-comm"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "dashmap",
+ "neleus-core-types",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.17",
+ "tokio",
+ "tokio-test",
+ "tracing",
+ "uuid 1.20.0",
+]
+
+[[package]]
+name = "agent-core"
+version = "0.1.0"
+dependencies = [
+ "agent-comm",
+ "agent-memory",
+ "async-trait",
+ "chrono",
+ "neleus-core-types",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.17",
+ "tokio",
+ "tokio-test",
+ "tracing",
+ "uuid 1.20.0",
+]
+
+[[package]]
+name = "agent-memory"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "neleus-core-types",
+ "parking_lot",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.17",
+ "tokio",
+ "tokio-test",
+ "tracing",
+ "uuid 1.20.0",
+]
+
+[[package]]
 name = "ahash"
 version = "0.8.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2214,6 +2269,9 @@ dependencies = [
 name = "neleus-pybridge"
 version = "0.1.0"
 dependencies = [
+ "agent-comm",
+ "agent-core",
+ "agent-memory",
  "chrono",
  "neleus-adapters-hyperliquid",
  "neleus-adapters-lighter",
@@ -2227,6 +2285,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "uuid 1.20.0",
 ]
 
 [[package]]
@@ -4039,6 +4098,7 @@ checksum = "ee48d38b119b0cd71fe4141b30f5ba9c7c5d9f4e7a3a8b4a674e4b6ef789976f"
 dependencies = [
  "getrandom 0.3.4",
  "js-sys",
+ "serde_core",
  "wasm-bindgen",
 ]
 
