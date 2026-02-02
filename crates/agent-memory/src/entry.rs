@@ -28,12 +28,12 @@ impl MemoryType {
     /// Default time-to-live for this memory type in seconds.
     pub fn default_ttl_secs(&self) -> Option<i64> {
         match self {
-            MemoryType::Observation => Some(3600 * 24),     // 1 day
-            MemoryType::Decision => Some(3600 * 24 * 7),    // 1 week
-            MemoryType::Action => Some(3600 * 24 * 7),      // 1 week
+            MemoryType::Observation => Some(3600 * 24),      // 1 day
+            MemoryType::Decision => Some(3600 * 24 * 7),     // 1 week
+            MemoryType::Action => Some(3600 * 24 * 7),       // 1 week
             MemoryType::Outcome => None,                     // Never expire
             MemoryType::Learning => None,                    // Never expire
-            MemoryType::Context => Some(3600 * 24),         // 1 day
+            MemoryType::Context => Some(3600 * 24),          // 1 day
             MemoryType::Conversation => Some(3600 * 24 * 3), // 3 days
         }
     }
@@ -135,9 +135,7 @@ impl MemoryEntry {
 
     /// Check if this memory has expired.
     pub fn is_expired(&self) -> bool {
-        self.expires_at
-            .map(|exp| Utc::now() > exp)
-            .unwrap_or(false)
+        self.expires_at.map(|exp| Utc::now() > exp).unwrap_or(false)
     }
 
     /// Calculate recency score (0.0 - 1.0, higher = more recent).
@@ -151,7 +149,7 @@ impl MemoryEntry {
     pub fn relevance_score(&self) -> f64 {
         let recency = self.recency_score();
         let frequency = (self.access_count as f64).ln_1p() / 10.0; // Logarithmic scaling
-        
+
         // Weighted combination
         0.5 * self.importance + 0.3 * recency + 0.2 * frequency.min(1.0)
     }
@@ -243,7 +241,7 @@ mod tests {
     #[test]
     fn test_memory_entry_creation() {
         let entry = MemoryEntry::new("agent-1", MemoryType::Decision, "Buy BTC at $50000");
-        
+
         assert_eq!(entry.agent_id, "agent-1");
         assert_eq!(entry.memory_type, MemoryType::Decision);
         assert_eq!(entry.content, "Buy BTC at $50000");
@@ -260,7 +258,7 @@ mod tests {
     fn test_relevance_score() {
         let entry = MemoryEntry::new("agent-1", MemoryType::Learning, "Important insight");
         let score = entry.relevance_score();
-        
+
         // Learning type has high importance, recent entry should have high score
         assert!(score > 0.5);
     }

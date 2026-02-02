@@ -29,5 +29,5 @@ pub mod vector;
 pub use entry::{MemoryEntry, MemoryQuery, MemoryType};
 pub use error::{MemoryError, MemoryResult};
 pub use manager::{MemoryConfig, MemoryManager};
-pub use store::{MemoryStore, SqliteMemoryStore, InMemoryStore};
+pub use store::{InMemoryStore, MemoryStore, SqliteMemoryStore};
 pub use vector::VectorIndex;
