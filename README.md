@@ -127,22 +127,31 @@ neleus new strategy --name MyMomentum
 
 ```python
 # strategies/my_momentum.py
-from neleus import Strategy, StrategyContext, Bar, OrderSide
+from neleus import Strategy, StrategyContext, Bar, OrderSide, InstrumentId, Venue, InstrumentType
+from decimal import Decimal
+from typing import Optional
 
 class MyMomentum(Strategy):
     def __init__(self, lookback=20, threshold=0.02):
         super().__init__("MyMomentum")
         self.lookback = lookback
-        self.threshold = threshold
-        self.prices = []
+        self.threshold = Decimal(str(threshold))
+        self.prices: list[Decimal] = []
+        self.instrument: Optional[InstrumentId] = None
     
-    def on_data(self, ctx: StrategyContext, data):
-        if isinstance(data, Bar):
-            self.prices.append(float(data.close))
-            if len(self.prices) >= self.lookback:
-                momentum = (self.prices[-1] - self.prices[-self.lookback]) / self.prices[-self.lookback]
-                if momentum > self.threshold:
-                    ctx.market_order(data.instrument_id, OrderSide.BUY, 0.1)
+    def on_start(self, ctx: StrategyContext) -> None:
+        self.instrument = InstrumentId(
+            venue=Venue.Hyperliquid,
+            symbol="ETH",
+            instrument_type=InstrumentType.Perp,
+        )
+    
+    def on_bar(self, ctx: StrategyContext, bar: Bar) -> None:
+        self.prices.append(Decimal(str(bar.close)))
+        if len(self.prices) >= self.lookback:
+            momentum = (self.prices[-1] - self.prices[-self.lookback]) / self.prices[-self.lookback]
+            if momentum > self.threshold:
+                ctx.market_order(bar.instrument_id, OrderSide.Buy, 0.1)
 ```
 
 ### Run Backtest

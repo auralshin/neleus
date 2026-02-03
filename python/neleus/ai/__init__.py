@@ -73,6 +73,51 @@ from .formatters import (
     AnalysisFormatter,
 )
 
+# Demo tools and agent
+from .demo_tools import (
+    ListMarketsTool,
+    RunBacktestTool,
+    MonitorVolatilityTool,
+    GetMarketRegimeTool,
+    CalculateRiskMetricsTool,
+    DEMO_TOOLS,
+    get_available_markets,
+    validate_symbol,
+)
+from .ollama_demo import (
+    OllamaTradingAgent,
+    ActionLogger,
+    AgentAction,
+    run_interactive_demo,
+)
+from .visualization import (
+    TerminalVisualizer,
+    HTMLReportGenerator,
+    ActionVisualization,
+    create_demo_visualization,
+)
+
+# Rich UI components
+from .rich_ui import (
+    OrderBookVisualizer,
+    PriceChartVisualizer,
+    MetricsDashboard,
+    ActivityFeed,
+    TradingUI,
+    AgentDemoUI,
+    run_visual_demo_with_ui,
+    HAS_RICH,
+)
+
+# Agent Competition
+from .agent_competition import (
+    CompetingAgent,
+    CompetitionVisualizer,
+    AgentStrategy,
+    AgentState,
+    run_competition,
+)
+
 __all__ = [
     # Core Agent
     "AIAgent",
@@ -119,4 +164,38 @@ __all__ = [
     "SignalFormatter",
     "PortfolioFormatter",
     "AnalysisFormatter",
+    # Demo Tools
+    "ListMarketsTool",
+    "RunBacktestTool",
+    "MonitorVolatilityTool",
+    "GetMarketRegimeTool",
+    "CalculateRiskMetricsTool",
+    "DEMO_TOOLS",
+    "get_available_markets",
+    "validate_symbol",
+    # Ollama Demo
+    "OllamaTradingAgent",
+    "ActionLogger",
+    "AgentAction",
+    "run_interactive_demo",
+    # Visualization
+    "TerminalVisualizer",
+    "HTMLReportGenerator",
+    "ActionVisualization",
+    "create_demo_visualization",
+    # Rich UI
+    "OrderBookVisualizer",
+    "PriceChartVisualizer",
+    "MetricsDashboard",
+    "ActivityFeed",
+    "TradingUI",
+    "AgentDemoUI",
+    "run_visual_demo_with_ui",
+    "HAS_RICH",
+    # Agent Competition
+    "CompetingAgent",
+    "CompetitionVisualizer",
+    "AgentStrategy",
+    "AgentState",
+    "run_competition",
 ]

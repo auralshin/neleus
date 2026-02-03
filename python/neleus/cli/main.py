@@ -81,6 +81,7 @@ app = typer.Typer(
 def main_callback(
     ctx: typer.Context,
     version: bool = typer.Option(False, "--version", "-v", help="Show version"),
+    no_banner: bool = typer.Option(False, "--no-banner", help="Hide ASCII banner"),
 ):
     """
     Neleus — Agent Orchestrator Service
@@ -89,18 +90,31 @@ def main_callback(
     
     AI-powered trading agents with memory, reasoning, and execution.
     """
+    # Always show banner unless suppressed
+    if not no_banner:
+        if version or ctx.invoked_subcommand is None:
+            print_banner()  # Full banner for version or no command
+        else:
+            print_banner(short=True)  # Short banner for commands
+    
     if version:
-        print_banner()
         console.print(f"[dim]Rust Core:[/dim] neleus_core 0.1.0")
         raise typer.Exit()
     
     if ctx.invoked_subcommand is None:
-        print_banner()
         console.print("[bold]Usage:[/bold] neleus [OPTIONS] COMMAND [ARGS]...")
         console.print()
         console.print("[bold magenta]AI Agent Commands:[/bold magenta]")
         console.print("  [cyan]new-agent[/cyan]  Create a new AI trading agent")
         console.print("  [cyan]agent[/cyan]      Manage and run AI agents")
+        console.print("  [cyan]demo[/cyan]       Interactive demos and visualizations")
+        console.print()
+        console.print("[bold]Demo Commands:[/bold]")
+        console.print("  [cyan]demo agent[/cyan]       AI trading agent demo (Ollama)")
+        console.print("  [cyan]demo competition[/cyan] Multi-agent trading competition")
+        console.print("  [cyan]demo markets[/cyan]     Live market data viewer")
+        console.print("  [cyan]demo volatility[/cyan]  Volatility analysis")
+        console.print("  [cyan]demo backtest[/cyan]    Quick strategy backtest")
         console.print()
         console.print("[bold]Project Commands:[/bold]")
         console.print("  [cyan]new[/cyan]        Create a new Neleus project")
@@ -128,11 +142,13 @@ from .agents import agents_app
 from .signals import signals_app
 from .metrics import metrics_app
 from .agent_project import agent_project_app, new_agent as new_agent_cmd
+from .demo import demo_app
 
 app.add_typer(deploy_app, name="deploy")
 app.add_typer(agents_app, name="agents")
 app.add_typer(signals_app, name="signals")
 app.add_typer(metrics_app, name="metrics")
+app.add_typer(demo_app, name="demo")
 
 # AI Agent commands
 app.add_typer(agent_project_app, name="agent")

@@ -98,14 +98,36 @@ class SMACrossoverStrategy(Strategy):
 
 **Backtest:**
 ```python
-from neleus import backtest, BacktestConfig, InstrumentId, Venue, InstrumentType
+import asyncio
+from neleus import (
+    InstrumentId,
+    Venue,
+    InstrumentType,
+    HyperliquidBacktestConfig,
+    HyperliquidBacktestNode,
+    CandleInterval,
+)
 
-strategy = SMACrossoverStrategy(fast_period=10, slow_period=30)
-instrument = InstrumentId(Venue.Hyperliquid, "BTC", InstrumentType.Perp)
-config = BacktestConfig(initial_capital=100000.0, start_date="2024-01-01")
+async def main():
+    strategy = SMACrossoverStrategy(fast_period=10, slow_period=30)
+    
+    config = HyperliquidBacktestConfig(
+        initial_capital=100000.0,
+        symbol="BTC",
+        start_date="2024-01-01",
+        end_date="2024-06-01",
+        interval=CandleInterval.OneHour,
+        commission_bps=5.0,
+        slippage_bps=2.0,
+    )
+    
+    node = HyperliquidBacktestNode(config)
+    node.add_strategy(strategy)
+    results = await node.run()
+    print(results.summary())
 
-results = backtest(strategy, instrument, config)
-print(results.summary())
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
 
 ---
@@ -118,7 +140,8 @@ Trade based on price momentum.
 
 ```python
 from neleus import Strategy, StrategyContext, Bar, OrderSide
-from typing import List
+from typing import Optional
+from decimal import Decimal
 
 class MomentumStrategy(Strategy):
     def __init__(
@@ -130,17 +153,17 @@ class MomentumStrategy(Strategy):
     ):
         super().__init__("Momentum")
         self.lookback = lookback
-        self.entry_threshold = entry_threshold
-        self.exit_threshold = exit_threshold
-        self.position_size = position_size
+        self.entry_threshold = Decimal(str(entry_threshold))
+        self.exit_threshold = Decimal(str(exit_threshold))
+        self.position_size = Decimal(str(position_size))
         
-        self.prices: List[float] = []
-        self.position = 0
+        self.prices: list[Decimal] = []
+        self.position: Decimal = Decimal("0")
     
-    def calculate_momentum(self) -> float:
+    def calculate_momentum(self) -> Decimal:
         """Calculate rate of change."""
         if len(self.prices) < self.lookback:
-            return 0.0
+            return Decimal("0")
         return (self.prices[-1] - self.prices[-self.lookback]) / self.prices[-self.lookback]
     
     def on_bar(self, ctx: StrategyContext, bar: Bar) -> None:
@@ -286,7 +309,7 @@ class BollingerBandsStrategy(Strategy):
         self.num_std = num_std
         self.position_size = position_size
         
-        self.prices: List[float] = []
+        self.prices: list[float] = []
         self.position = 0
     
     def calculate_bollinger_bands(self):

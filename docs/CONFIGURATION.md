@@ -35,10 +35,9 @@ default_symbol = "ETH-PERP"
 [backtest]
 initial_capital = 100000.0
 commission_bps = 5.0              # Basis points (5 = 0.05%)
-slippage_model = "fixed"          # fixed, volume_based, spread_based
-slippage_bps = 2.0
+slippage_bps = 2.0                # Slippage in basis points
 fill_model = "immediate"          # immediate, next_tick, probabilistic
-latency_ms = 0                    # Simulated latency
+latency_ms = 0                    # Simulated latency in milliseconds
 
 [risk]
 max_position_pct = 10.0           # Max 10% per position
@@ -84,6 +83,7 @@ HYPERLIQUID_PRIVATE_KEY=0x1234567890abcdef...
 HYPERLIQUID_NETWORK=testnet           # testnet or mainnet
 HYPERLIQUID_WALLET=0xYourWalletAddress
 HYPERLIQUID_VAULT_ADDRESS=            # Optional for vault trading
+HYPERLIQUID_API_URL=                  # Optional custom API endpoint
 
 # =============================================================================
 # Lighter (zkLighter) Configuration

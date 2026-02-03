@@ -122,12 +122,12 @@ def on_quote(self, ctx: StrategyContext, quote: QuoteTick) -> None:
 - `ctx` (StrategyContext): Strategy context
 - `quote` (QuoteTick): Quote tick with bid/ask
 
-##### `on_order_book(ctx: StrategyContext, book: OrderBook) -> None`
+##### `on_book(ctx: StrategyContext, book: OrderBook) -> None`
 
 Called for order book updates.
 
 ```python
-def on_order_book(self, ctx: StrategyContext, book: OrderBook) -> None:
+def on_book(self, ctx: StrategyContext, book: OrderBook) -> None:
     """Process order book depth."""
     bid_depth = sum(level.size for level in book.bids[:5])
     ask_depth = sum(level.size for level in book.asks[:5])
@@ -602,31 +602,29 @@ class InstrumentType(Enum):
 
 ## Configuration
 
-### BacktestConfig
+### HyperliquidBacktestConfig
 
-Configuration for backtesting.
+Configuration for Hyperliquid backtesting.
 
 ```python
-@dataclass
-class BacktestConfig:
-    initial_capital: float = 100000.0
-    commission_bps: float = 5.0          # 5 basis points
-    slippage_bps: float = 2.0            # 2 basis points
-    start_date: Optional[str] = None     # "YYYY-MM-DD"
-    end_date: Optional[str] = None
-    fill_model: FillModel = FillModel.Immediate
-    latency_model: LatencyModel = LatencyModel.Zero
-```
+from neleus import HyperliquidBacktestConfig, CandleInterval
+from datetime import datetime
 
-**Example:**
-```python
-config = BacktestConfig(
+config = HyperliquidBacktestConfig(
+    # Capital
     initial_capital=100000.0,
-    commission_bps=5.0,
-    slippage_bps=2.0,
-    start_date="2024-01-01",
+    
+    # Costs
+    commission_bps=5.0,          # 5 basis points (0.05%)
+    slippage_bps=2.0,            # 2 basis points (0.02%)
+    
+    # Date range
+    start_date="2024-01-01",     # YYYY-MM-DD
     end_date="2024-06-01",
-    fill_model=FillModel.NextTick,
+    
+    # Data settings
+    interval=CandleInterval.OneHour,  # or FiveMinutes, FifteenMinutes, etc.
+    symbol="ETH",                     # Trading symbol
 )
 ```
 
@@ -666,13 +664,31 @@ def backtest(
 
 **Example:**
 ```python
-from neleus import backtest, BacktestConfig, InstrumentId, Venue, InstrumentType
+from neleus import (
+    Strategy,
+    InstrumentId,
+    Venue,
+    InstrumentType,
+    HyperliquidBacktestConfig,
+    HyperliquidBacktestNode,
+    CandleInterval,
+)
 
 strategy = MyStrategy()
 instrument = InstrumentId(Venue.Hyperliquid, "ETH", InstrumentType.Perp)
-config = BacktestConfig(initial_capital=100000.0)
 
-results = backtest(strategy, instrument, config)
+config = HyperliquidBacktestConfig(
+    initial_capital=100000.0,
+    commission_bps=5.0,
+    slippage_bps=2.0,
+    start_date="2024-01-01",
+    end_date="2024-06-01",
+    interval=CandleInterval.OneHour,
+)
+
+node = HyperliquidBacktestNode(config)
+node.add_strategy(strategy)
+results = await node.run()
 print(results.summary())
 ```
 

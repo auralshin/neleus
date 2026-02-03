@@ -93,8 +93,9 @@ neleus strategy add my_momentum --template momentum
 Or edit `strategies/momentum_strategy.py`:
 
 ```python
-from neleus import Strategy, StrategyContext, Bar, OrderSide
-from typing import List
+from neleus import Strategy, StrategyContext, Bar, OrderSide, InstrumentId, Venue, InstrumentType
+from typing import Optional
+from decimal import Decimal
 
 class MomentumStrategy(Strategy):
     def __init__(self, lookback: int = 20, threshold: float = 0.02):
@@ -135,33 +136,42 @@ neleus backtest --strategy momentum --symbol ETH-PERP --capital 100000
 Or use the Python API:
 
 ```python
-from neleus import backtest, BacktestConfig, InstrumentId, Venue, InstrumentType
+import asyncio
+from neleus import (
+    InstrumentId,
+    Venue,
+    InstrumentType,
+    HyperliquidBacktestConfig,
+    HyperliquidBacktestNode,
+    CandleInterval,
+)
 from strategies.momentum_strategy import MomentumStrategy
 
-# Configure backtest
-config = BacktestConfig(
-    initial_capital=100000.0,
-    commission_bps=5.0,
-    start_date="2024-01-01",
-    end_date="2024-06-01",
-)
+async def main():
+    # Configure backtest
+    config = HyperliquidBacktestConfig(
+        initial_capital=100000.0,
+        commission_bps=5.0,
+        slippage_bps=2.0,
+        start_date="2024-01-01",
+        end_date="2024-06-01",
+        symbol="ETH",
+        interval=CandleInterval.OneHour,
+    )
+    
+    # Create strategy
+    strategy = MomentumStrategy(lookback=20, threshold=0.02)
+    
+    # Run backtest
+    node = HyperliquidBacktestNode(config)
+    node.add_strategy(strategy)
+    results = await node.run()
+    
+    # View results
+    print(results.summary())
 
-# Define instrument
-instrument = InstrumentId(
-    venue=Venue.Hyperliquid,
-    symbol="ETH",
-    instrument_type=InstrumentType.Perp,
-)
-
-# Run backtest
-strategy = MomentumStrategy(lookback=20, threshold=0.02)
-results = backtest(strategy, instrument, config)
-
-# View results
-print(f"Total Return: {results.return_pct:.2f}%")
-print(f"Sharpe Ratio: {results.sharpe_ratio:.2f}")
-print(f"Max Drawdown: {results.max_drawdown_pct:.2f}%")
-print(f"Win Rate: {results.win_rate():.1f}%")
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
 
 ### 5. Launch the Dashboard

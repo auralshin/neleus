@@ -1,0 +1,47 @@
+{
+  "agent_name": "TestAgent",
+  "start_time": "2026-02-03T23:53:23.752240",
+  "actions": [
+    {
+      "timestamp": "2026-02-03T23:53:23.752697",
+      "action_type": "thinking",
+      "tool_name": null,
+      "input_data": null,
+      "output_data": null,
+      "reasoning": "Analyzing market conditions for BTC",
+      "duration_ms": 0.0,
+      "success": true,
+      "error": null
+    },
+    {
+      "timestamp": "2026-02-03T23:53:23.753123",
+      "action_type": "tool_call",
+      "tool_name": "monitor_volatility",
+      "input_data": {
+        "instrument": "BTC"
+      },
+      "output_data": {
+        "regime": "normal"
+      },
+      "reasoning": null,
+      "duration_ms": 150.5,
+      "success": true,
+      "error": null
+    },
+    {
+      "timestamp": "2026-02-03T23:53:23.753281",
+      "action_type": "decision",
+      "tool_name": null,
+      "input_data": null,
+      "output_data": {
+        "action": "buy",
+        "instrument": "BTC",
+        "size": 0.1
+      },
+      "reasoning": "Volatility is low, market regime is bullish",
+      "duration_ms": 0.0,
+      "success": true,
+      "error": null
+    }
+  ]
+}

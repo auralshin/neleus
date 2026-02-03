@@ -143,11 +143,17 @@ LIGHTER_API_KEY=...
 ## 🔍 Backtest Configuration
 
 ```python
-from neleus import BacktestConfig, FillModel
+import asyncio
+from neleus import (
+    HyperliquidBacktestConfig,
+    HyperliquidBacktestNode,
+    CandleInterval,
+)
 
-config = BacktestConfig(
-    initial_capital=100000.0,
-    commission_bps=5.0,
+async def run_backtest():
+    config = HyperliquidBacktestConfig(
+        initial_capital=100000.0,
+        commission_bps=5.0,
     slippage_bps=2.0,
     start_date="2024-01-01",
     end_date="2024-06-01",
