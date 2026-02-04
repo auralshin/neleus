@@ -209,112 +209,150 @@ class RunBacktestTool(Tool):
         instrument = validate_symbol(instrument)
 
         try:
-            # Try to use Rust backtest engine via PyO3
+            # Use Rust core to fetch real Hyperliquid data
             try:
-                from neleus.node import HyperliquidBacktestConfig, HyperliquidBacktestNode, CandleInterval
+                from neleus_core import HyperliquidClient
+                from decimal import Decimal
 
                 # Parse dates
                 start_dt = datetime.strptime(start_date, "%Y-%m-%d")
                 end_dt = datetime.strptime(end_date, "%Y-%m-%d")
 
-                # Create backtest config
-                config = HyperliquidBacktestConfig(
-                    coin=instrument,  # Already validated
-                    start=start_dt,
-                    end=end_dt,
-                    initial_balance=initial_capital,
-                    interval=CandleInterval.HOUR_1,
-                    maker_fee_bps=2.0,
-                    taker_fee_bps=5.0,
-                    slippage_bps=5.0,
-                )
+                # Fetch real candles from Hyperliquid
+                client = HyperliquidClient(testnet=False)
+                start_ms = int(start_dt.timestamp() * 1000)
+                end_ms = int(end_dt.timestamp() * 1000)
+                
+                candles = client.fetch_candles(instrument, "1h", start_ms, end_ms)
+                
+                if not candles or len(candles) < 20:
+                    raise ValueError(f"Insufficient candle data for {instrument}")
 
-                # Create a simple strategy based on type
-                from neleus.strategy import Strategy
-
-                class BacktestStrategy(Strategy):
-                    """Dynamic backtest strategy."""
-
-                    def __init__(self, strat_type: str, params: Dict[str, Any]):
-                        self.strat_type = strat_type
-                        self.params = params or {}
-                        self.prices = []
-                        self.in_position = False
-
-                    def on_bar(self, ctx, bar):
-                        self.prices.append(bar.close)
-
-                        if len(self.prices) < 20:
-                            return
-
-                        # Simple strategy implementations
-                        if self.strat_type == "momentum":
-                            # Buy when price above 20-period MA
-                            ma = sum(self.prices[-20:]) / 20
-                            if bar.close > ma * 1.01 and not self.in_position:
-                                ctx.market_order(
-                                    bar.instrument_id, "buy", 0.1, False)
-                                self.in_position = True
-                            elif bar.close < ma * 0.99 and self.in_position:
-                                ctx.market_order(
-                                    bar.instrument_id, "sell", 0.1, False)
-                                self.in_position = False
-
-                        elif self.strat_type == "mean_reversion":
-                            # Buy on dips, sell on rallies
-                            ma = sum(self.prices[-20:]) / 20
-                            std = np.std(self.prices[-20:])
-                            lower = ma - 2 * std
-                            upper = ma + 2 * std
-
-                            if bar.close < lower and not self.in_position:
-                                ctx.market_order(
-                                    bar.instrument_id, "buy", 0.1, False)
-                                self.in_position = True
-                            elif bar.close > upper and self.in_position:
-                                ctx.market_order(
-                                    bar.instrument_id, "sell", 0.1, False)
-                                self.in_position = False
-
-                        elif self.strat_type == "rsi_based":
-                            # Simple RSI strategy
-                            delta = np.diff(self.prices[-15:])
-                            gain = np.where(delta > 0, delta, 0).mean()
-                            loss = np.where(delta < 0, -delta, 0).mean()
-                            rs = gain / (loss + 1e-10)
-                            rsi = 100 - (100 / (1 + rs))
-
-                            if rsi < 30 and not self.in_position:
-                                ctx.market_order(
-                                    bar.instrument_id, "buy", 0.1, False)
-                                self.in_position = True
-                            elif rsi > 70 and self.in_position:
-                                ctx.market_order(
-                                    bar.instrument_id, "sell", 0.1, False)
-                                self.in_position = False
-
-                # Run backtest
-                node = HyperliquidBacktestNode(config)
-                strat = BacktestStrategy(strategy, parameters)
-                results = node.run_strategy(strat)
+                # Extract price data
+                closes = np.array([c.close for c in candles])
+                highs = np.array([c.high for c in candles])
+                lows = np.array([c.low for c in candles])
+                volumes = np.array([c.volume for c in candles])
+                
+                # Run simple backtest with real data
+                position = 0.0
+                cash = initial_capital
+                equity = initial_capital
+                trades = []
+                equity_curve = [initial_capital]
+                
+                # Strategy-specific logic
+                for i in range(20, len(closes)):
+                    price = closes[i]
+                    
+                    if strategy == "momentum":
+                        # Momentum: Buy when price > 20-period MA
+                        ma20 = np.mean(closes[i-20:i])
+                        signal = 1 if price > ma20 * 1.01 else (-1 if price < ma20 * 0.99 else 0)
+                        
+                    elif strategy == "mean_reversion":
+                        # Mean reversion: Buy dips, sell rallies
+                        ma20 = np.mean(closes[i-20:i])
+                        std20 = np.std(closes[i-20:i])
+                        z_score = (price - ma20) / (std20 + 1e-10)
+                        signal = -1 if z_score > 2 else (1 if z_score < -2 else 0)
+                        
+                    elif strategy == "breakout":
+                        # Breakout: Buy on new highs
+                        high20 = np.max(highs[i-20:i])
+                        low20 = np.min(lows[i-20:i])
+                        signal = 1 if price > high20 else (-1 if price < low20 else 0)
+                        
+                    elif strategy == "rsi_based":
+                        # RSI strategy
+                        returns = np.diff(closes[i-15:i])
+                        gains = np.where(returns > 0, returns, 0)
+                        losses = np.where(returns < 0, -returns, 0)
+                        avg_gain = np.mean(gains)
+                        avg_loss = np.mean(losses)
+                        rs = avg_gain / (avg_loss + 1e-10)
+                        rsi = 100 - (100 / (1 + rs))
+                        signal = 1 if rsi < 30 else (-1 if rsi > 70 else 0)
+                    else:
+                        signal = 0
+                    
+                    # Execute trades
+                    if signal == 1 and position == 0:  # Buy
+                        position_size = (cash * 0.95) / price  # Use 95% of cash
+                        cost = position_size * price
+                        fee = cost * 0.0005  # 5 bps taker fee
+                        cash -= (cost + fee)
+                        position = position_size
+                        trades.append({'type': 'buy', 'price': price, 'size': position_size, 'fee': fee})
+                        
+                    elif signal == -1 and position > 0:  # Sell
+                        proceeds = position * price
+                        fee = proceeds * 0.0005
+                        cash += (proceeds - fee)
+                        trades.append({'type': 'sell', 'price': price, 'size': position, 'fee': fee})
+                        position = 0
+                    
+                    # Update equity
+                    equity = cash + (position * price if position > 0 else 0)
+                    equity_curve.append(equity)
+                
+                # Close any open position
+                if position > 0:
+                    proceeds = position * closes[-1]
+                    fee = proceeds * 0.0005
+                    cash += (proceeds - fee)
+                    trades.append({'type': 'sell', 'price': closes[-1], 'size': position, 'fee': fee})
+                    position = 0
+                
+                # Calculate metrics
+                final_balance = cash
+                total_pnl = final_balance - initial_capital
+                return_pct = (total_pnl / initial_capital) * 100
+                
+                # Sharpe ratio
+                equity_returns = np.diff(equity_curve) / equity_curve[:-1]
+                sharpe_ratio = (np.mean(equity_returns) / (np.std(equity_returns) + 1e-10)) * np.sqrt(365 * 24)
+                
+                # Sortino ratio (downside deviation)
+                downside_returns = equity_returns[equity_returns < 0]
+                downside_std = np.std(downside_returns) if len(downside_returns) > 0 else 1e-10
+                sortino_ratio = (np.mean(equity_returns) / downside_std) * np.sqrt(365 * 24)
+                
+                # Max drawdown
+                peak = np.maximum.accumulate(equity_curve)
+                drawdown = (peak - equity_curve) / peak
+                max_drawdown_pct = np.max(drawdown) * 100
+                
+                # Trade statistics
+                winning_trades = sum(1 for t in trades[1::2] if t['price'] > trades[trades.index(t)-1]['price'])
+                losing_trades = len(trades) // 2 - winning_trades
+                win_rate = (winning_trades / max(1, len(trades) // 2)) * 100
+                
+                # Profit factor
+                wins = sum(t['price'] * t['size'] - trades[trades.index(t)-1]['price'] * trades[trades.index(t)-1]['size'] 
+                          for t in trades[1::2] if t['price'] > trades[trades.index(t)-1]['price'])
+                losses = abs(sum(t['price'] * t['size'] - trades[trades.index(t)-1]['price'] * trades[trades.index(t)-1]['size'] 
+                                for t in trades[1::2] if t['price'] <= trades[trades.index(t)-1]['price']))
+                profit_factor = wins / max(1, losses)
 
                 output = {
                     "instrument": instrument,
                     "strategy": strategy,
                     "period": f"{start_date} to {end_date}",
                     "initial_capital": initial_capital,
-                    "final_balance": results.final_balance,
-                    "total_pnl": results.total_pnl,
-                    "return_pct": results.return_pct,
-                    "sharpe_ratio": results.sharpe_ratio,
-                    "sortino_ratio": results.sortino_ratio,
-                    "max_drawdown_pct": results.max_drawdown_pct,
-                    "total_trades": results.total_trades,
-                    "winning_trades": results.winning_trades,
-                    "losing_trades": results.losing_trades,
-                    "win_rate": results.win_rate() if hasattr(results, 'win_rate') else (results.winning_trades / max(1, results.total_trades) * 100),
-                    "profit_factor": results.profit_factor() if hasattr(results, 'profit_factor') else 0,
-                    "execution_source": "rust_core",
+                    "final_balance": float(final_balance),
+                    "total_pnl": float(total_pnl),
+                    "return_pct": round(float(return_pct), 2),
+                    "sharpe_ratio": round(float(sharpe_ratio), 2),
+                    "sortino_ratio": round(float(sortino_ratio), 2),
+                    "max_drawdown_pct": round(float(max_drawdown_pct), 2),
+                    "total_trades": len(trades) // 2,
+                    "winning_trades": int(winning_trades),
+                    "losing_trades": int(losing_trades),
+                    "win_rate": round(float(win_rate), 1),
+                    "profit_factor": round(float(profit_factor), 2),
+                    "execution_source": "hyperliquid_live_data",
+                    "candles_used": len(candles),
                 }
 
             except Exception as e:

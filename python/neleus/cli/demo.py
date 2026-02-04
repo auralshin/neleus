@@ -32,9 +32,10 @@ demo_app = typer.Typer(
 def _check_ollama() -> bool:
     """Check if Ollama is running."""
     try:
-        import httpx
-        response = httpx.get("http://localhost:11434/api/tags", timeout=2.0)
-        return response.status_code == 200
+        import urllib.request
+        import json
+        with urllib.request.urlopen("http://localhost:11434/api/tags", timeout=2.0) as response:
+            return response.status == 200
     except Exception:
         return False
 
@@ -42,11 +43,12 @@ def _check_ollama() -> bool:
 def _get_available_models() -> List[str]:
     """Get list of available Ollama models."""
     try:
-        import httpx
-        response = httpx.get("http://localhost:11434/api/tags", timeout=5.0)
-        if response.status_code == 200:
-            data = response.json()
-            return [m["name"] for m in data.get("models", [])]
+        import urllib.request
+        import json
+        with urllib.request.urlopen("http://localhost:11434/api/tags", timeout=5.0) as response:
+            if response.status == 200:
+                data = json.loads(response.read().decode())
+                return [m["name"] for m in data.get("models", [])]
     except Exception:
         pass
     return []
