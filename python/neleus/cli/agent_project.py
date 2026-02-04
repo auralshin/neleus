@@ -1,12 +1,3 @@
-"""
-Neleus CLI - Agent Project Scaffolding
-
-Commands for creating and managing AI trading agent projects:
-- neleus new-agent <name>  - Create a new agent project
-- neleus agent run <name>  - Run an agent
-- neleus agent list        - List agent projects
-"""
-
 import os
 import sys
 import shutil

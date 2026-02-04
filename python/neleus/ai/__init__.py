@@ -16,7 +16,6 @@ Architecture:
 - LLM calls remain in Python (HTTP client simplicity)
 """
 
-# Import from Rust core (via PyO3 bindings) when available
 try:
     from neleus_core import (
         # Memory
