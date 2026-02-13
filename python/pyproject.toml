@@ -72,6 +72,11 @@ python-source = "."
 module-name = "neleus.neleus_core"
 # Include additional files
 include = ["neleus/ui/*.html", "neleus/ui/*.css", "neleus/ui/*.js"]
+# SECURITY: Binary-only distribution - do not create source distributions
+# This protects company IP by only releasing compiled wheels
+strip = true
+# Only build wheel, never sdist (source distribution)
+# Use: maturin build --release --strip
 
 [tool.black]
 line-length = 100

@@ -57,13 +57,10 @@ NELEUS_BANNER = """
     [dim]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/dim]
 """
 
-NELEUS_SHORT_BANNER = "[bold cyan]Neleus[/bold cyan] [dim]v0.1.0[/dim] — Agent Orchestrator · [italic]Make Your Agent Trade Smarter[/italic]"
-
-
 def print_banner(short: bool = False):
     """Print the Neleus banner."""
     if short:
-        console.print(NELEUS_SHORT_BANNER)
+        console.print(NELEUS_BANNER)
     else:
         console.print(NELEUS_BANNER)
 
@@ -934,6 +931,9 @@ def info():
 
 def main():
     """Entry point for the CLI."""
+    argv = sys.argv[1:]
+    if ("--help" in argv or "-h" in argv) and "--no-banner" not in argv:
+        print_banner()
     app()
 
 

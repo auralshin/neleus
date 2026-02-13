@@ -1,0 +1,38 @@
+# PyPI Configuration Template
+# Copy to ~/.pypirc and fill in your credentials
+# NEVER commit this file to git!
+
+[distutils]
+index-servers =
+    pypi
+    testpypi
+    private
+
+# Production PyPI
+[pypi]
+username = __token__
+password = pypi-YOUR-PRODUCTION-TOKEN-HERE
+
+# Test PyPI (for testing before production)
+[testpypi]
+repository = https://test.pypi.org/legacy/
+username = __token__
+password = pypi-YOUR-TEST-TOKEN-HERE
+
+# Private package index (optional)
+[private]
+repository = https://your-private-index.com/simple/
+username = your-username
+password = your-password
+
+# ─────────────────────────────────────────────────────────────
+# GETTING PYPI TOKENS:
+# ─────────────────────────────────────────────────────────────
+# 1. Create account at https://pypi.org
+# 2. Go to Account Settings > API tokens
+# 3. Create new token with "Upload packages" scope
+# 4. Copy token (starts with pypi-)
+# 5. Paste into password field above
+# 
+# For TestPyPI: https://test.pypi.org (separate account/token)
+# ─────────────────────────────────────────────────────────────

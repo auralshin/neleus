@@ -1,11 +1,21 @@
-# Include package data
+# Include only Python and UI files
 include README.md
-include LICENSE
 recursive-include neleus *.py
 recursive-include neleus/ui *.html *.css *.js
-recursive-include neleus/cli *.py
 
-# Exclude unnecessary files
+# CRITICAL: Exclude ALL Rust source code to protect IP
+global-exclude *.rs
+global-exclude Cargo.toml
+global-exclude Cargo.lock
+prune ../crates
+prune ../target
+prune crates
+prune target
+
+# Exclude development files
 global-exclude __pycache__
 global-exclude *.py[co]
 global-exclude .DS_Store
+global-exclude *.so
+global-exclude *.pyd
+global-exclude .git*

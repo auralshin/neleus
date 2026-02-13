@@ -1,0 +1,37 @@
+# PyPI Ignore - Exclude Rust source and internal code
+# This ensures no source code is accidentally uploaded
+
+# Rust source code
+*.rs
+Cargo.toml
+Cargo.lock
+crates/
+../crates/
+target/
+../target/
+
+# Development files
+*.pyc
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+.git/
+.github/
+.vscode/
+
+# Build artifacts
+build/
+dist/
+*.so
+*.pyd
+*.dylib
+
+# Documentation (if you want to keep docs private)
+# docs/
+# *.md
+
+# Test files  
+test_*/
+tests/
