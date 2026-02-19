@@ -20,6 +20,12 @@ import uuid
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Message defaults
+# ---------------------------------------------------------------------------
+DEFAULT_MESSAGE_PRIORITY = 5   # 1 (highest) to 10 (lowest)
+DEFAULT_MESSAGE_TTL_SECS = 300
+
 
 class MessageType(str, Enum):
     """Types of agent messages."""
@@ -50,8 +56,8 @@ class AgentMessage:
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     timestamp: datetime = field(default_factory=datetime.now)
     correlation_id: Optional[str] = None  # For request/response matching
-    priority: int = 5  # 1 (highest) to 10 (lowest)
-    ttl_seconds: int = 300  # Time to live
+    priority: int = DEFAULT_MESSAGE_PRIORITY  # 1 (highest) to 10 (lowest)
+    ttl_seconds: int = DEFAULT_MESSAGE_TTL_SECS  # Time to live
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
@@ -78,8 +84,8 @@ class AgentMessage:
             payload=data["payload"],
             timestamp=datetime.fromisoformat(data["timestamp"]) if data.get("timestamp") else datetime.now(),
             correlation_id=data.get("correlation_id"),
-            priority=data.get("priority", 5),
-            ttl_seconds=data.get("ttl_seconds", 300),
+            priority=data.get("priority", DEFAULT_MESSAGE_PRIORITY),
+            ttl_seconds=data.get("ttl_seconds", DEFAULT_MESSAGE_TTL_SECS),
         )
     
     def is_expired(self) -> bool:
@@ -450,10 +456,26 @@ async def send_alert(
         },
         priority=1 if severity == "critical" else 3 if severity == "error" else 5,
     )
-    
+
     if to_agents:
         for agent_id in to_agents:
             message.to_agent = agent_id
             await bus.publish(message)
     else:
         await bus.broadcast(message)
+
+
+__all__ = [
+    "DEFAULT_MESSAGE_PRIORITY",
+    "DEFAULT_MESSAGE_TTL_SECS",
+    "MessageType",
+    "MessagePriority",
+    "AgentMessage",
+    "MessageHandler",
+    "MessageBus",
+    "LocalMessageBus",
+    "create_message_bus",
+    "request_data",
+    "share_signal",
+    "send_alert",
+]

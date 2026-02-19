@@ -21,6 +21,15 @@ import json
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Formatter threshold constants
+# ---------------------------------------------------------------------------
+IMBALANCE_THRESHOLD = 0.1
+DIRECTION_CHANGE_PCT = 2.0
+VOLATILITY_HIGH_THRESHOLD = 2.0
+SIGNAL_STRONG_THRESHOLD = 0.7
+SIGNAL_MODERATE_THRESHOLD = 0.4
+
 
 class DataFormatter(ABC):
     """Base class for data formatters."""
@@ -161,7 +170,7 @@ class MarketDataFormatter(DataFormatter):
             "bid_depth_10": bid_volume,
             "ask_depth_10": ask_volume,
             "imbalance": round(imbalance, 3),  # Positive = more bids, negative = more asks
-            "imbalance_signal": "bullish" if imbalance > 0.1 else "bearish" if imbalance < -0.1 else "neutral",
+            "imbalance_signal": "bullish" if imbalance > IMBALANCE_THRESHOLD else "bearish" if imbalance < -IMBALANCE_THRESHOLD else "neutral",
         }
     
     def _format_trades(self, data: Dict[str, Any]) -> Dict[str, Any]:
@@ -218,8 +227,8 @@ class MarketDataFormatter(DataFormatter):
         low = summary.get("period_low", 0)
         vol = summary.get("volatility", 0)
         
-        direction = "bullish" if change > 2 else "bearish" if change < -2 else "sideways"
-        vol_desc = "high" if vol > 2 else "moderate" if vol > 1 else "low"
+        direction = "bullish" if change > DIRECTION_CHANGE_PCT else "bearish" if change < -DIRECTION_CHANGE_PCT else "sideways"
+        vol_desc = "high" if vol > VOLATILITY_HIGH_THRESHOLD else "moderate" if vol > 1 else "low"
         
         return f"""{instrument} ({timeframe} timeframe):
 Current Price: ${current:,.2f}
@@ -325,7 +334,7 @@ class SignalFormatter(DataFormatter):
         source = signal.get("source", "unknown")
         signal_type = signal.get("type", "signal")
         
-        strength_desc = "strong" if strength > 0.7 else "moderate" if strength > 0.4 else "weak"
+        strength_desc = "strong" if strength > SIGNAL_STRONG_THRESHOLD else "moderate" if strength > SIGNAL_MODERATE_THRESHOLD else "weak"
         
         return f"  - {instrument}: {strength_desc} {direction} {signal_type} (strength: {strength:.2f}, source: {source})"
 
@@ -579,3 +588,17 @@ class AnalysisFormatter(DataFormatter):
             return 0.5
         
         return max(bullish, bearish) / (bullish + bearish)
+
+
+__all__ = [
+    "IMBALANCE_THRESHOLD",
+    "DIRECTION_CHANGE_PCT",
+    "VOLATILITY_HIGH_THRESHOLD",
+    "SIGNAL_STRONG_THRESHOLD",
+    "SIGNAL_MODERATE_THRESHOLD",
+    "DataFormatter",
+    "MarketDataFormatter",
+    "SignalFormatter",
+    "PortfolioFormatter",
+    "AnalysisFormatter",
+]

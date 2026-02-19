@@ -4,6 +4,7 @@ Backtest Runner Module
 Handles loading strategies and running backtests from user projects.
 """
 import asyncio
+import logging
 import sys
 import yaml
 from pathlib import Path
@@ -14,6 +15,9 @@ from decimal import Decimal
 # Use relative imports to avoid circular dependencies
 from .strategy import Strategy
 from .node import HyperliquidBacktestConfig, HyperliquidBacktestNode, CandleInterval
+from .constants import DEFAULT_LOOKBACK_DAYS, DEFAULT_CANDLE_INTERVAL
+
+logger = logging.getLogger(__name__)
 
 
 class BacktestRunner:
@@ -50,7 +54,7 @@ class BacktestRunner:
                             value = value.strip().strip('"').strip("'")
                             try:
                                 value = float(value)
-                            except:
+                            except (ValueError, TypeError):
                                 pass
                             config[key] = value
                 return config
@@ -130,7 +134,7 @@ class BacktestRunner:
         backtest_cfg = config.get("backtest", {})
         
         # Parse interval
-        interval_str = backtest_cfg.get("candle_interval", "1h")
+        interval_str = backtest_cfg.get("candle_interval", DEFAULT_CANDLE_INTERVAL)
         interval_map = {
             "1m": CandleInterval.MIN_1,
             "5m": CandleInterval.MIN_5,
@@ -153,7 +157,7 @@ class BacktestRunner:
         # Handle dates - if not specified, use lookback_days
         start_time = None
         end_time = None
-        lookback_days = 30  # default
+        lookback_days = DEFAULT_LOOKBACK_DAYS
         
         if start_date and end_date:
             # Use explicit dates if both provided
@@ -203,15 +207,15 @@ class BacktestRunner:
                     strategy_names.append(f.stem)
         
         if not strategy_names:
-            print("No strategies found to run.")
+            logger.warning("No strategies found to run.")
             return {}
-        
+
         results = {}
-        
+
         for strat_name in strategy_names:
-            print(f"\n{'='*60}")
-            print(f"Running backtest: {strat_name}")
-            print('='*60)
+            logger.info("=" * 60)
+            logger.info("Running backtest: %s", strat_name)
+            logger.info("=" * 60)
             
             try:
                 # Load strategy class
@@ -243,31 +247,30 @@ class BacktestRunner:
                 self.print_results(result)
                 
             except Exception as e:
-                print(f"Error running backtest for {strat_name}: {e}")
-                import traceback
-                traceback.print_exc()
+                logger.error("Error running backtest for %s: %s", strat_name, e, exc_info=True)
         
         return results
     
-    def print_results(self, result):
-        """Print backtest results."""
-        # Use the built-in summary method from BacktestResults
-        print(result.summary())
-        
-        # Additional info
-        if hasattr(result, 'equity_curve') and result.equity_curve:
+    def print_results(self, result) -> None:
+        """Log backtest results summary."""
+        logger.info(result.summary())
+
+        if hasattr(result, "equity_curve") and result.equity_curve:
             initial = result.equity_curve[0][1]
             final = result.equity_curve[-1][1]
-            print(f"Equity: ${initial:,.2f} → ${final:,.2f}")
-            print()
-        
-        if hasattr(result, 'fills'):
-            print(f"Total trades: {len(result.fills)}")
-            if result.fills and len(result.fills) > 0:
-                print("Sample trades:")
+            logger.info("Equity: $%,.2f → $%,.2f", initial, final)
+
+        if hasattr(result, "fills"):
+            logger.info("Total trades: %d", len(result.fills))
+            if result.fills:
+                logger.info("Sample trades:")
                 for fill in result.fills[:5]:
-                    print(f"  qty={fill.get('quantity', 0):.4f} @ ${fill.get('price', 0):,.2f} (fee: ${fill.get('commission', 0):.4f})")
-            print()
+                    logger.info(
+                        "  qty=%.4f @ $%,.2f (fee: $%.4f)",
+                        fill.get("quantity", 0),
+                        fill.get("price", 0),
+                        fill.get("commission", 0),
+                    )
 
 
 def run_backtest_sync(
@@ -288,3 +291,9 @@ def run_backtest_sync(
         end_date=end_date,
         initial_capital=initial_capital,
     ))
+
+
+__all__ = [
+    "BacktestRunner",
+    "run_backtest_sync",
+]

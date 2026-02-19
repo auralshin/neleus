@@ -20,6 +20,7 @@ To build the Rust extension:
 """
 
 from __future__ import annotations
+import logging
 from typing import TYPE_CHECKING, List, Dict, Any, Optional, Union
 from decimal import Decimal
 
@@ -74,7 +75,7 @@ try:
         version as rust_version,
     )
     
-    print(f"[neleus] Using Rust core (v{rust_version()})")
+    logging.getLogger(__name__).info("Using Rust core (v%s)", rust_version())
     
     # Market data union type
     MarketData = Union[Bar, TradeTick, QuoteTick, OrderBook]

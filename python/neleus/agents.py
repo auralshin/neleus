@@ -29,12 +29,15 @@ Example:
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional, Callable
 import json
 import requests
+
+logger = logging.getLogger(__name__)
 
 
 class AgentState(Enum):
@@ -427,7 +430,7 @@ class AgentManager:
                 timeout=5,
             )
             return response.status_code == 200
-        except:
+        except Exception:
             return False
 
 
@@ -492,12 +495,26 @@ class LocalAgentRunner:
             for instrument in instruments:
                 node.subscribe(instrument)
         
-        print(f"Running {strategy_id} locally...")
+        logger.info("Running %s locally...", strategy_id)
         self._running = True
-        
+
         try:
             node.run()
         except KeyboardInterrupt:
-            print("\nStopping...")
+            logger.info("Stopping (KeyboardInterrupt)...")
         finally:
             self._running = False
+
+
+__all__ = [
+    "AgentState",
+    "VenueSpec",
+    "RiskLimits",
+    "CapitalSpec",
+    "ScheduleSpec",
+    "SignalSourceSpec",
+    "AgentSpec",
+    "AgentStats",
+    "AgentManager",
+    "LocalAgentRunner",
+]

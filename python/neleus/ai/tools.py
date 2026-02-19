@@ -13,15 +13,30 @@ Tools are the actions an agent can take in the world.
 
 from __future__ import annotations
 
+import json
 import logging
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
-import json
+
+import aiohttp
+import numpy as np
 
 if TYPE_CHECKING:
     from .agent import AIAgent
+
+from ..constants import (
+    MS_PER_HOUR,
+    RSI_PERIOD,
+    SMA_PERIOD,
+    EMA_FAST,
+    EMA_SLOW,
+    RSI_OVERSOLD,
+    RSI_OVERBOUGHT,
+    BOLLINGER_STD,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -224,27 +239,23 @@ class GetMarketDataTool(Tool):
         limit: int = 100,
     ) -> ToolResult:
         """Fetch market data."""
-        import time
         start = time.time()
-        
+
         try:
-            # Import Hyperliquid client
             from neleus.types import HyperliquidClient
             client = HyperliquidClient(testnet=False)
-            
+
             if data_type == "ticker":
-                # Get current price
-                from datetime import datetime
                 end_time = int(datetime.now().timestamp() * 1000)
-                start_time = end_time - 3600000  # 1 hour
-                
+                start_time = end_time - MS_PER_HOUR
+
                 candles = client.fetch_candles(
                     instrument.replace("-PERP", ""),
                     "1h",
                     start_time,
                     end_time,
                 )
-                
+
                 if candles:
                     latest = candles[-1]
                     output = {
@@ -258,20 +269,22 @@ class GetMarketDataTool(Tool):
                     }
                 else:
                     output = {"error": "No data available"}
-                    
+
             elif data_type == "candles":
-                from datetime import datetime
                 end_time = int(datetime.now().timestamp() * 1000)
-                hours = {"1m": 1, "5m": 5, "15m": 15, "1h": limit, "4h": limit * 4, "1d": limit * 24}.get(timeframe, limit)
-                start_time = end_time - (hours * 3600000)
-                
+                hours = {
+                    "1m": 1, "5m": 5, "15m": 15,
+                    "1h": limit, "4h": limit * 4, "1d": limit * 24,
+                }.get(timeframe, limit)
+                start_time = end_time - (hours * MS_PER_HOUR)
+
                 candles = client.fetch_candles(
                     instrument.replace("-PERP", ""),
                     timeframe,
                     start_time,
                     end_time,
                 )
-                
+
                 output = {
                     "instrument": instrument,
                     "timeframe": timeframe,
@@ -285,7 +298,7 @@ class GetMarketDataTool(Tool):
                             "volume": c.volume,
                         }
                         for c in (candles[-limit:] if candles else [])
-                    ]
+                    ],
                 }
             else:
                 output = {"error": f"Data type '{data_type}' not yet implemented"}
@@ -339,8 +352,6 @@ class GetAnalysisTool(Tool):
         timeframe: str = "1h",
     ) -> ToolResult:
         """Calculate technical indicators."""
-        import time
-        import numpy as np
         start = time.time()
         
         if indicators is None:
@@ -385,8 +396,8 @@ class GetAnalysisTool(Tool):
                 gain = np.where(delta > 0, delta, 0)
                 loss = np.where(delta < 0, -delta, 0)
                 
-                avg_gain = np.mean(gain[-14:])
-                avg_loss = np.mean(loss[-14:])
+                avg_gain = np.mean(gain[-RSI_PERIOD:])
+                avg_loss = np.mean(loss[-RSI_PERIOD:])
                 
                 if avg_loss != 0:
                     rs = avg_gain / avg_loss
@@ -396,15 +407,15 @@ class GetAnalysisTool(Tool):
                 
                 analysis["indicators"]["rsi"] = round(rsi, 2)
                 
-                if rsi < 30:
+                if rsi < RSI_OVERSOLD:
                     analysis["signals"].append({"type": "oversold", "indicator": "rsi", "value": rsi})
-                elif rsi > 70:
+                elif rsi > RSI_OVERBOUGHT:
                     analysis["signals"].append({"type": "overbought", "indicator": "rsi", "value": rsi})
             
             if "macd" in indicators:
-                # MACD calculation
-                ema12 = closes[-12:].mean()  # Simplified
-                ema26 = closes[-26:].mean()  # Simplified
+                # MACD calculation (simplified)
+                ema12 = closes[-EMA_FAST:].mean()
+                ema26 = closes[-EMA_SLOW:].mean()
                 macd_line = ema12 - ema26
                 
                 analysis["indicators"]["macd"] = {
@@ -414,11 +425,11 @@ class GetAnalysisTool(Tool):
             
             if "bollinger" in indicators:
                 # Bollinger Bands
-                sma20 = np.mean(closes[-20:])
-                std20 = np.std(closes[-20:])
-                
-                upper = sma20 + 2 * std20
-                lower = sma20 - 2 * std20
+                sma20 = np.mean(closes[-SMA_PERIOD:])
+                std20 = np.std(closes[-SMA_PERIOD:])
+
+                upper = sma20 + BOLLINGER_STD * std20
+                lower = sma20 - BOLLINGER_STD * std20
                 
                 analysis["indicators"]["bollinger"] = {
                     "upper": round(upper, 2),
@@ -429,7 +440,7 @@ class GetAnalysisTool(Tool):
                 
                 if closes[-1] < lower:
                     analysis["signals"].append({"type": "oversold", "indicator": "bollinger"})
-                elif closes[-1] > upper:
+                elif closes[-1] > upper:  # noqa: E501
                     analysis["signals"].append({"type": "overbought", "indicator": "bollinger"})
             
             # Overall signal
@@ -525,7 +536,6 @@ class PlaceOrderTool(Tool):
         take_profit: Optional[float] = None,
     ) -> ToolResult:
         """Place an order."""
-        import time
         start = time.time()
         
         # Validate
@@ -617,8 +627,6 @@ class GetSignalsTool(Tool):
         limit: int = 10,
     ) -> ToolResult:
         """Get signals."""
-        import time
-        from datetime import datetime
         start = time.time()
         
         try:
@@ -703,7 +711,6 @@ class QueryMemoryTool(Tool):
         limit: int = 5,
     ) -> ToolResult:
         """Query memory."""
-        import time
         start = time.time()
         
         try:
@@ -763,7 +770,6 @@ class GetPortfolioTool(Tool):
         include_history: bool = False,
     ) -> ToolResult:
         """Get portfolio."""
-        import time
         start = time.time()
         
         try:
@@ -854,7 +860,6 @@ class SendMessageTool(Tool):
         content: Dict[str, Any],
     ) -> ToolResult:
         """Send message."""
-        import time
         start = time.time()
         
         try:
@@ -893,3 +898,18 @@ class SendMessageTool(Tool):
                 error=str(e),
                 execution_time_ms=(time.time() - start) * 1000,
             )
+
+
+__all__ = [
+    "ToolResult",
+    "ToolParameter",
+    "Tool",
+    "ToolRegistry",
+    "GetMarketDataTool",
+    "GetAnalysisTool",
+    "PlaceOrderTool",
+    "GetSignalsTool",
+    "QueryMemoryTool",
+    "GetPortfolioTool",
+    "SendMessageTool",
+]

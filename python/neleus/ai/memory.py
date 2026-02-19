@@ -26,6 +26,11 @@ import hashlib
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Module-level constants
+# ---------------------------------------------------------------------------
+DEFAULT_SHORT_TERM_LIMIT = 100
+
 
 class MemoryType(str, Enum):
     """Types of memories an agent can store."""
@@ -317,7 +322,7 @@ class CompositeMemoryStore(MemoryStore):
         short_term: MemoryStore,
         long_term: Optional[MemoryStore] = None,
         vector: Optional[MemoryStore] = None,
-        short_term_limit: int = 100,
+        short_term_limit: int = DEFAULT_SHORT_TERM_LIMIT,
     ):
         self._short_term = short_term
         self._long_term = long_term
@@ -505,3 +510,14 @@ def create_memory_store(
         )
     
     return primary
+
+
+__all__ = [
+    "DEFAULT_SHORT_TERM_LIMIT",
+    "MemoryType",
+    "MemoryEntry",
+    "MemoryStore",
+    "LocalMemoryStore",
+    "CompositeMemoryStore",
+    "create_memory_store",
+]

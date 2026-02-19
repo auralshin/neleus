@@ -10,10 +10,13 @@ All demos use real data from Hyperliquid via Rust core.
 """
 
 import asyncio
+import logging
 from typing import Optional, List
 from pathlib import Path
 
 import typer
+
+logger = logging.getLogger(__name__)
 from rich.console import Console
 from rich.prompt import Prompt, Confirm, IntPrompt
 from rich.panel import Panel
@@ -36,7 +39,8 @@ def _check_ollama() -> bool:
         import json
         with urllib.request.urlopen("http://localhost:11434/api/tags", timeout=2.0) as response:
             return response.status == 200
-    except Exception:
+    except Exception as e:
+        logger.debug("Ollama not reachable: %s", e)
         return False
 
 
@@ -49,8 +53,8 @@ def _get_available_models() -> List[str]:
             if response.status == 200:
                 data = json.loads(response.read().decode())
                 return [m["name"] for m in data.get("models", [])]
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Could not fetch Ollama models: %s", e)
     return []
 
 
@@ -61,7 +65,8 @@ def _get_available_symbols() -> List[str]:
         client = HyperliquidClient(testnet=False)
         meta = client.fetch_meta()
         return meta.symbol_names()
-    except Exception:
+    except Exception as e:
+        logger.debug("Could not fetch Hyperliquid symbols: %s", e)
         return ["BTC", "ETH", "SOL"]  # Fallback
 
 
@@ -341,9 +346,9 @@ def markets_demo():
                         f"{volatility:.0f}%",
                         regime,
                     )
-            except Exception:
-                pass
-        
+            except Exception as e:
+                logger.debug("Skipping symbol in market data display: %s", e)
+
         console.print(table)
         console.print()
         console.print(f"[dim]Data source: Hyperliquid Mainnet | Updated: {datetime.now().strftime('%H:%M:%S')}[/dim]")
@@ -501,7 +506,10 @@ def backtest_demo(
 def demo_callback():
     """
     Interactive demos and visualizations.
-    
+
     Showcase Neleus capabilities with real market data.
     """
     pass
+
+
+__all__ = ["demo_app"]

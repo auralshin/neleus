@@ -4,9 +4,12 @@ Neleus CLI - Agents Command
 Manage deployed trading agents.
 """
 
+import logging
 import os
 from typing import Optional
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 import typer
 from rich.console import Console
@@ -101,6 +104,7 @@ def agents_list(
         try:
             agents = manager.list_agents()
         except Exception as e:
+            logger.debug("Could not connect to orchestrator: %s", e)
             console.print(f"[yellow]Warning:[/yellow] Could not connect to orchestrator")
             console.print(f"[dim]{e}[/dim]\n")
             agents = DEMO_AGENTS
@@ -413,3 +417,6 @@ def agents_logs(
     
     if follow:
         console.print("\n[dim]Live log streaming not available in demo mode[/dim]")
+
+
+__all__ = ["agents_app"]

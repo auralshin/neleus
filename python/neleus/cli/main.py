@@ -155,7 +155,11 @@ app.command("new-agent")(new_agent_cmd)
 # Configuration
 # =============================================================================
 
-NELEUS_VERSION = "0.1.0"
+try:
+    from neleus import __version__ as NELEUS_VERSION
+except Exception:
+    NELEUS_VERSION = "0.1.0"
+
 TEMPLATE_DIR = Path(__file__).parent.parent / "templates"
 CONFIG_FILE = "neleus.toml"
 
@@ -939,3 +943,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+__all__ = ["app", "main"]

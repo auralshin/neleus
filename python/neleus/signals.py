@@ -35,6 +35,7 @@ Example:
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
@@ -44,6 +45,10 @@ import uuid
 import requests
 from threading import Thread
 import time
+
+from .constants import DEFAULT_POLL_INTERVAL_SECS, DEFAULT_SIGNAL_TTL_HOURS
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from .types import OrderSide
@@ -394,7 +399,7 @@ class SignalClient:
                 timeout=5,
             )
             return response.status_code == 200
-        except:
+        except Exception:
             return False
 
 
@@ -418,7 +423,7 @@ class SignalListener:
         self,
         hub_url: str = "http://localhost:8082",
         api_key: Optional[str] = None,
-        poll_interval: float = 1.0,
+        poll_interval: float = DEFAULT_POLL_INTERVAL_SECS,
     ):
         self.client = SignalClient(hub_url, api_key)
         self.poll_interval = poll_interval
@@ -473,13 +478,13 @@ class SignalListener:
                             handler(signal)
                     
                     # Cleanup old entries
-                    cutoff = datetime.utcnow() - timedelta(hours=1)
+                    cutoff = datetime.utcnow() - timedelta(hours=DEFAULT_SIGNAL_TTL_HOURS)
                     self._last_seen = {
                         k: v for k, v in self._last_seen.items()
                         if v > cutoff
                     }
             except Exception as e:
-                print(f"Error polling signals: {e}")
+                logger.error("Error polling signals: %s", e)
             
             time.sleep(self.poll_interval)
 
@@ -543,3 +548,19 @@ def risk_alert(
     )
     signal.metadata["message"] = message
     return signal
+
+
+__all__ = [
+    "SignalType",
+    "SignalDirection",
+    "SignalPriority",
+    "SignalFeatures",
+    "Signal",
+    "SignalSubscription",
+    "SignalResponse",
+    "SignalClient",
+    "SignalListener",
+    "entry_signal",
+    "exit_signal",
+    "risk_alert",
+]

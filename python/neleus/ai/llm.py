@@ -24,6 +24,15 @@ from typing import Any, Dict, List, Optional, AsyncIterator, Union
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Default model identifiers and generation parameters
+# ---------------------------------------------------------------------------
+DEFAULT_OPENAI_MODEL = "gpt-4o"
+DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-6"
+DEFAULT_OLLAMA_MODEL = "llama3.2"
+DEFAULT_TEMPERATURE = 0.7
+DEFAULT_MAX_TOKENS = 4096
+
 
 class Role(str, Enum):
     """Message roles."""
@@ -87,19 +96,19 @@ class CompletionResult:
 class LLMProvider(ABC):
     """
     Abstract base class for LLM providers.
-    
+
     Implementations should handle:
     - Chat completions
     - Tool/function calling
     - Streaming (optional)
     - Error handling and retries
     """
-    
+
     def __init__(
         self,
         model: str,
-        temperature: float = 0.7,
-        max_tokens: int = 4096,
+        temperature: float = DEFAULT_TEMPERATURE,
+        max_tokens: int = DEFAULT_MAX_TOKENS,
         **kwargs,
     ):
         self.model = model
@@ -147,12 +156,12 @@ class LLMProvider(ABC):
 
 class OpenAIProvider(LLMProvider):
     """OpenAI API provider (GPT-4, GPT-4o, etc.)"""
-    
+
     def __init__(
         self,
-        model: str = "gpt-4o",
-        temperature: float = 0.7,
-        max_tokens: int = 4096,
+        model: str = DEFAULT_OPENAI_MODEL,
+        temperature: float = DEFAULT_TEMPERATURE,
+        max_tokens: int = DEFAULT_MAX_TOKENS,
         api_key: Optional[str] = None,
         **kwargs,
     ):
@@ -271,12 +280,12 @@ class OpenAIProvider(LLMProvider):
 
 class AnthropicProvider(LLMProvider):
     """Anthropic API provider (Claude models)"""
-    
+
     def __init__(
         self,
-        model: str = "claude-3-5-sonnet-20241022",
-        temperature: float = 0.7,
-        max_tokens: int = 4096,
+        model: str = DEFAULT_ANTHROPIC_MODEL,
+        temperature: float = DEFAULT_TEMPERATURE,
+        max_tokens: int = DEFAULT_MAX_TOKENS,
         api_key: Optional[str] = None,
         **kwargs,
     ):
@@ -369,12 +378,12 @@ class AnthropicProvider(LLMProvider):
 
 class OllamaProvider(LLMProvider):
     """Ollama local model provider"""
-    
+
     def __init__(
         self,
-        model: str = "llama3.2",
-        temperature: float = 0.7,
-        max_tokens: int = 4096,
+        model: str = DEFAULT_OLLAMA_MODEL,
+        temperature: float = DEFAULT_TEMPERATURE,
+        max_tokens: int = DEFAULT_MAX_TOKENS,
         base_url: str = "http://localhost:11434",
         **kwargs,
     ):
@@ -438,8 +447,8 @@ class OllamaProvider(LLMProvider):
 def create_provider(
     provider: str = "openai",
     model: Optional[str] = None,
-    temperature: float = 0.7,
-    max_tokens: int = 4096,
+    temperature: float = DEFAULT_TEMPERATURE,
+    max_tokens: int = DEFAULT_MAX_TOKENS,
     **kwargs,
 ) -> LLMProvider:
     """
@@ -456,9 +465,9 @@ def create_provider(
         Configured LLMProvider instance
     """
     providers = {
-        "openai": (OpenAIProvider, "gpt-4o"),
-        "anthropic": (AnthropicProvider, "claude-3-5-sonnet-20241022"),
-        "ollama": (OllamaProvider, "llama3.2"),
+        "openai": (OpenAIProvider, DEFAULT_OPENAI_MODEL),
+        "anthropic": (AnthropicProvider, DEFAULT_ANTHROPIC_MODEL),
+        "ollama": (OllamaProvider, DEFAULT_OLLAMA_MODEL),
     }
     
     if provider not in providers:
@@ -472,3 +481,21 @@ def create_provider(
         max_tokens=max_tokens,
         **kwargs,
     )
+
+
+__all__ = [
+    "DEFAULT_OPENAI_MODEL",
+    "DEFAULT_ANTHROPIC_MODEL",
+    "DEFAULT_OLLAMA_MODEL",
+    "DEFAULT_TEMPERATURE",
+    "DEFAULT_MAX_TOKENS",
+    "Role",
+    "Message",
+    "ToolCall",
+    "CompletionResult",
+    "LLMProvider",
+    "OpenAIProvider",
+    "AnthropicProvider",
+    "OllamaProvider",
+    "create_provider",
+]

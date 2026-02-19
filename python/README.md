@@ -2,6 +2,15 @@
 
 The Python user layer for the Neleus trading framework. Write strategies in Python, run them anywhere.
 
+## 📚 Documentation Quick Links
+
+- **[SETUP_VISUAL.md](SETUP_VISUAL.md)** - Visual guide: Where everything goes
+- **[ENV_QUICK_REFERENCE.md](ENV_QUICK_REFERENCE.md)** - Environment setup quick reference
+- **[ENVIRONMENT_SETUP.md](ENVIRONMENT_SETUP.md)** - Complete environment configuration guide
+- **[BINARY_DISTRIBUTION.md](BINARY_DISTRIBUTION.md)** - Building & publishing guide
+- **[RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md)** - Pre-release security checklist
+- **Tools:** `./check_environment.sh`, `./build_wheels.sh`, `./publish_wheels.sh`
+
 ## Installation
 
 ```bash
@@ -258,6 +267,47 @@ ruff check .
 # Type check
 mypy neleus
 ```
+
+## Distribution & Publishing
+
+**⚠️ Important: This package uses binary-only distribution to protect IP.**
+
+Neleus is distributed as pre-compiled wheels (.whl files) only. The Rust source code is compiled into binary form and is not included in published packages.
+
+### Quick Start: Build & Publish
+
+```bash
+# Build binary wheels (current platform)
+cd python
+./build_wheels.sh
+
+# Publish to PyPI
+./publish_wheels.sh
+```
+
+### Cross-Platform Builds
+
+For full platform support, use GitHub Actions (`.github/workflows/build-wheels.yml`) or build manually on each platform:
+- Linux (x86_64, aarch64)
+- macOS (Intel, Apple Silicon)
+- Windows (x86_64)
+
+### Resources
+
+- **[BINARY_DISTRIBUTION.md](BINARY_DISTRIBUTION.md)** - Complete distribution guide
+- **[QUICK_REFERENCE.sh](QUICK_REFERENCE.sh)** - Quick commands reference
+- `./build_wheels.sh` - Automated build script with security checks
+- `./publish_wheels.sh` - Interactive publishing tool
+
+### Security Notes
+
+✓ Binary wheels contain NO source code
+✓ Rust implementation remains private
+✓ Users install normally with `pip install neleus`
+✗ Never run `python setup.py sdist` (creates source distribution)
+✗ Never commit `dist/` or `.pypirc` to version control
+
+For detailed instructions, see [BINARY_DISTRIBUTION.md](BINARY_DISTRIBUTION.md).
 
 ## License
 

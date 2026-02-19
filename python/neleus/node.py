@@ -6,6 +6,8 @@ Uses types from the unified types module - no duplicate definitions.
 """
 from __future__ import annotations
 
+import json
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -13,6 +15,16 @@ from decimal import Decimal
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, TYPE_CHECKING, Union
+
+from .constants import (
+    DEFAULT_LOOKBACK_DAYS,
+    ANNUALIZATION_FACTOR,
+    RSI_PERIOD,
+    DEFAULT_MAKER_FEE_BPS,
+    DEFAULT_TAKER_FEE_BPS,
+)
+
+logger = logging.getLogger(__name__)
 
 # Import all types from the Rust bridge
 from .types import (
@@ -633,7 +645,7 @@ class HyperliquidBacktestConfig:
     end_time: Optional[datetime] = None
     
     # Alternative: lookback
-    lookback_days: int = 30
+    lookback_days: int = DEFAULT_LOOKBACK_DAYS
     
     # Network (testnet for testing)
     testnet: bool = False
@@ -733,9 +745,9 @@ class HyperliquidBacktestNode(Node):
         
         try:
             # Fetch historical data
-            print(f"Fetching {self.config.coin} data from Hyperliquid...")
+            logger.info("Fetching %s data from Hyperliquid...", self.config.coin)
             raw_candles = await self._fetch_hyperliquid_candles()
-            print(f"Retrieved {len(raw_candles)} candles")
+            logger.info("Retrieved %d candles", len(raw_candles))
             
             if not raw_candles:
                 raise RuntimeError("No candle data received")
@@ -756,7 +768,7 @@ class HyperliquidBacktestNode(Node):
             )
             
             # Run strategies
-            print(f"Running {len(self._strategies)} strategies...")
+            logger.info("Running %d strategies...", len(self._strategies))
             
             for strategy in self._strategies:
                 # Create context (simplified - no order routing)
@@ -843,7 +855,7 @@ class HyperliquidBacktestNode(Node):
                 strategy.on_stop(ctx)
             
             # Calculate metrics
-            print(f"Calculating performance metrics...")
+            logger.info("Calculating performance metrics...")
             
             initial_equity = float(self.config.initial_capital)
             final_equity = equity_curve[-1][1] if equity_curve else initial_equity
@@ -873,15 +885,16 @@ class HyperliquidBacktestNode(Node):
             if len(daily_returns) > 1:
                 mean_ret = statistics.mean(daily_returns)
                 std_ret = statistics.stdev(daily_returns)
-                sharpe = (mean_ret / std_ret * (252 ** 0.5)) if std_ret > 0 else 0.0
-                
+                ann_sqrt = ANNUALIZATION_FACTOR ** 0.5
+                sharpe = (mean_ret / std_ret * ann_sqrt) if std_ret > 0 else 0.0
+
                 downside = [r for r in daily_returns if r < 0]
                 if downside and len(downside) > 1:
                     downside_std = statistics.stdev(downside)
-                    sortino = (mean_ret / downside_std * (252 ** 0.5)) if downside_std > 0 else 0.0
+                    sortino = (mean_ret / downside_std * ann_sqrt) if downside_std > 0 else 0.0
                 else:
                     sortino = sharpe
-                volatility = std_ret * (252 ** 0.5)
+                volatility = std_ret * ann_sqrt
             else:
                 sharpe = sortino = volatility = 0.0
             

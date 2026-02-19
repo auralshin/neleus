@@ -21,6 +21,8 @@ from .types import (
     TradeTick,
     QuoteTick,
     OrderBook,
+    Fill,
+    Position,
     MarketData,
 )
 
@@ -111,40 +113,40 @@ class Strategy(ABC):
         """
         pass
     
-    def on_bar(self, ctx: StrategyContext, bar) -> None:
+    def on_bar(self, ctx: StrategyContext, bar: Bar) -> None:
         """
         Called when a new bar (OHLCV candle) completes.
-        
+
         Args:
             ctx: Strategy context
             bar: The completed bar
         """
         pass
-    
-    def on_trade(self, ctx: StrategyContext, trade) -> None:
+
+    def on_trade(self, ctx: StrategyContext, trade: TradeTick) -> None:
         """
         Called for each trade tick.
-        
+
         Args:
-            ctx: Strategy context  
+            ctx: Strategy context
             trade: Trade tick data
         """
         pass
-    
-    def on_quote(self, ctx: StrategyContext, quote) -> None:
+
+    def on_quote(self, ctx: StrategyContext, quote: QuoteTick) -> None:
         """
         Called for quote (BBO) updates.
-        
+
         Args:
             ctx: Strategy context
             quote: Quote tick with bid/ask
         """
         pass
-    
-    def on_book(self, ctx: StrategyContext, book) -> None:
+
+    def on_book(self, ctx: StrategyContext, book: OrderBook) -> None:
         """
         Called for order book updates.
-        
+
         Args:
             ctx: Strategy context
             book: Order book snapshot
@@ -163,15 +165,15 @@ class Strategy(ABC):
         """Called when an order is rejected."""
         pass
     
-    def on_order_filled(self, ctx: StrategyContext, order_id: str, fill) -> None:
+    def on_order_filled(self, ctx: StrategyContext, order_id: str, fill: Fill) -> None:
         """Called when an order is filled (fully or partially)."""
         pass
-    
+
     def on_order_canceled(self, ctx: StrategyContext, order_id: str) -> None:
         """Called when an order is canceled."""
         pass
-    
-    def on_position_changed(self, ctx: StrategyContext, position) -> None:
+
+    def on_position_changed(self, ctx: StrategyContext, position: Position) -> None:
         """Called when a position changes."""
         pass
     
@@ -179,6 +181,9 @@ class Strategy(ABC):
     # Timer Callbacks  
     # =========================================================================
     
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}(id={self.strategy_id!r})"
+
     def on_timer(self, ctx: StrategyContext, timer_name: str) -> None:
         """
         Called when a scheduled timer fires.
@@ -214,6 +219,9 @@ class Actor(ABC):
     def on_data(self, ctx: StrategyContext, data: MarketData) -> None:
         """Called for market data events."""
         pass
+
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}(id={self.actor_id!r})"
 
 
 __all__ = [

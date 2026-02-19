@@ -11,7 +11,7 @@ index-servers =
 # Production PyPI
 [pypi]
 username = __token__
-password = pypi-YOUR-PRODUCTION-TOKEN-HERE
+password = pypi-AgEIcHlwaS5vcmcCJGE0Y2U5ZjE3LTFjZjEtNDA5MC1hZGMyLTUwNGM0YjFhMmM4ZQACKlszLCIwMDc1YTUyOS1lYjUxLTRhNDAtYThlZi1iY2MyYjgzZGRmYmEiXQAABiDAITSeaPJlSNHm46Xl9kL3uucRhDduRlTRehpmLXRXPg
 
 # Test PyPI (for testing before production)
 [testpypi]

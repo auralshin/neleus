@@ -27,7 +27,7 @@ fi
 # Clean previous builds
 echo -e "${YELLOW}Cleaning previous builds...${NC}"
 rm -rf dist/ build/ *.egg-info
-rm -rf target/wheels/*
+rm -rf ../target/wheels/*
 
 # Build the wheel for the current platform
 echo -e "${YELLOW}Building binary wheel...${NC}"
@@ -35,9 +35,9 @@ maturin build --release --strip
 
 # Verify no source code is in the wheel
 echo -e "${YELLOW}Verifying wheel contents...${NC}"
-WHEEL_FILE=$(ls target/wheels/*.whl | head -n 1)
+WHEEL_FILE=$(ls ../target/wheels/*.whl 2>/dev/null | head -n 1)
 
-if [ -z "$WHEEL_FILE" ]; then
+if [ -z "$WHEEL_FILE" ]; then 
     echo -e "${RED}Error: No wheel file generated${NC}"
     exit 1
 fi
@@ -52,7 +52,7 @@ unzip -l "$WHEEL_FILE" | grep -E '\.rs$|Cargo\.toml' && {
 
 # Copy to dist directory
 mkdir -p dist
-cp target/wheels/*.whl dist/
+cp ../target/wheels/*.whl dist/
 
 echo -e "${GREEN}✓ Binary wheel built successfully${NC}"
 echo "Wheel location: dist/"

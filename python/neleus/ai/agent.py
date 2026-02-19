@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -83,13 +84,16 @@ class PersonalityConfig:
     verbose_reasoning: bool = True
     explain_decisions: bool = True
     
+    def __repr__(self) -> str:
+        return f"PersonalityConfig(name={self.name!r}, style={self.trading_style!r})"
+
     @classmethod
     def from_yaml(cls, path: Union[str, Path]) -> "PersonalityConfig":
         """Load personality from YAML file."""
         with open(path, "r") as f:
             data = yaml.safe_load(f)
         return cls(**data)
-    
+
     def to_system_prompt(self) -> str:
         """Generate system prompt from personality."""
         if self.system_prompt:
@@ -164,6 +168,9 @@ class InfoConfig:
     decision_interval_seconds: int = 60
     max_decisions_per_hour: int = 60
     
+    def __repr__(self) -> str:
+        return f"InfoConfig(version={self.version!r}, llm={self.llm_provider!r}/{self.llm_model!r})"
+
     @classmethod
     def from_yaml(cls, path: Union[str, Path]) -> "InfoConfig":
         """Load info from YAML file."""
@@ -179,6 +186,9 @@ class AgentConfig:
     info: InfoConfig
     project_path: Path
     
+    def __repr__(self) -> str:
+        return f"AgentConfig(personality={self.personality.name!r}, path={self.project_path!r})"
+
     @classmethod
     def from_project(cls, project_path: Union[str, Path]) -> "AgentConfig":
         """Load configuration from a project directory."""
@@ -234,7 +244,7 @@ class AIAgent(ABC):
         message_bus: Optional[MessageBus] = None,
     ):
         self.config = config
-        self.id = f"{config.personality.name.lower().replace(' ', '-')}-{id(self)}"
+        self.id = f"{config.personality.name.lower().replace(' ', '-')}-{uuid.uuid4().hex[:8]}"
         self.state = AgentState.CREATED
         
         # Core components (initialized in start())
@@ -643,3 +653,12 @@ class AIAgent(ABC):
                 "tools": self.config.info.tools,
             }
         }
+
+
+__all__ = [
+    "AgentState",
+    "PersonalityConfig",
+    "InfoConfig",
+    "AgentConfig",
+    "AIAgent",
+]
