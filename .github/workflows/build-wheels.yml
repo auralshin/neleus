@@ -33,11 +33,11 @@ jobs:
         uses: PyO3/maturin-action@v1
         env:
           CFLAGS_aarch64_unknown_linux_gnu: "-march=armv8-a"
-          CARGO_BUILD_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: "aarch64-linux-gnu-gcc"
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: "aarch64-linux-gnu-gcc"
         with:
           target: ${{ matrix.target }}
           manylinux: auto
-          args: --release --strip --out dist --interpreter 3.10 3.11 3.12 --manifest-path ../crates/pybridge/Cargo.toml
+          args: --release --strip --out dist --interpreter 3.10 3.11 3.12 3.13 --manifest-path ../crates/pybridge/Cargo.toml
           working-directory: python
 
       - name: Upload wheels
@@ -55,7 +55,7 @@ jobs:
       matrix:
         include:
           - target: x86_64
-            runner: macos-12
+            runner: macos-13
           - target: aarch64
             runner: macos-latest
     steps:
