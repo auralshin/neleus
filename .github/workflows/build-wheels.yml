@@ -1,7 +1,7 @@
 name: Release to PyPI
 # Multi-platform, multi-version wheel builds
 # Uses PyO3/maturin-action for manylinux-compliant Linux wheels
-# Publishes via pypa/gh-action-pypi-publish using PYPI_TOKEN secret
+# Publishes via pypa/gh-action-pypi-publish using Trusted Publishing (OIDC)
 
 on:
   release:
@@ -165,8 +165,7 @@ jobs:
   release-upload:
     name: Upload to GitHub Release
     needs: [verify]
-    if: github.event_name == 'release'
-    # Note: intentionally NOT included for workflow_dispatch — no release to attach to
+    if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -181,6 +180,7 @@ jobs:
       - name: Upload to release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.ref_name }}
           files: dist/*.whl
 
   # ── Publish to PyPI ──────────────────────────────────────────────────
