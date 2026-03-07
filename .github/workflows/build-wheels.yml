@@ -9,6 +9,8 @@ on:
     # but NOT for draft releases. Use 'created' if drafts should also trigger.
     types: [published]
   workflow_dispatch:
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: read
