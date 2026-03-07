@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+      <url>
+        <loc>https://neleus.trade/docs/</loc>
+      </url>
+      <url>
+        <loc>https://neleus.trade/docs/getting-started/installation/</loc>
+      </url>
+      <url>
+        <loc>https://neleus.trade/docs/getting-started/quickstart/</loc>
+      </url>
+      <url>
+        <loc>https://neleus.trade/docs/cli/overview/</loc>
+      </url>
+      <url>
+        <loc>https://neleus.trade/docs/cli/market/</loc>
+      </url>
+      <url>
+        <loc>https://neleus.trade/docs/projects/</loc>
+      </url>
+      <url>
+        <loc>https://neleus.trade/docs/strategy-writing/</loc>
+      </url>
+      <url>
+        <loc>https://neleus.trade/docs/strategy-examples/</loc>
+      </url>
+      <url>
+        <loc>https://neleus.trade/docs/configuration/</loc>
+      </url>
+      <url>
+        <loc>https://neleus.trade/docs/troubleshooting/</loc>
+      </url>
+</urlset>

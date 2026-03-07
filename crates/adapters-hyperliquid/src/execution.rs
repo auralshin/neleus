@@ -63,6 +63,23 @@ impl HyperliquidExecution {
 }
 
 impl HyperliquidExecutionClient {
+    /// Whether another order can be submitted without hitting the open-order limit.
+    pub fn can_place_order(&self) -> bool {
+        self.execution.can_place_order()
+    }
+
+    /// Current number of tracked open orders.
+    pub fn open_order_count(&self) -> u32 {
+        self.execution.open_order_count
+    }
+
+    /// Maximum number of simultaneous open orders allowed.
+    pub fn max_open_orders(&self) -> u32 {
+        self.execution.max_open_orders
+    }
+}
+
+impl HyperliquidExecutionClient {
     pub fn new(config: HyperliquidConfig) -> Self {
         Self {
             execution: HyperliquidExecution::new(config.clone()),

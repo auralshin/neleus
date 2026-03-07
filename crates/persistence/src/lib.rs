@@ -18,6 +18,9 @@ pub use replay::{
     HistoricalReplayer, MarketEvent, ReplayConfig, ReplayProgress, ReplayStats,
 };
 
+pub mod trade_monitor;
+pub use trade_monitor::{FillRecord, OrderRecord, PnlSummary, TradeMonitor};
+
 const POSTGRES_SCHEMA: &str = r#"
 CREATE TABLE IF NOT EXISTS event_log (
     id BIGSERIAL PRIMARY KEY,

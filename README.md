@@ -1,315 +1,137 @@
 <p align="center">
-  <img src="logo.png" alt="Neleus logo" width="200">
-  <h3 align="center"><strong>Neleus</strong></h3>
-  <p align="center"><em>Make Your Agent Trade Smarter</em></p>
-  <p align="center">Agent Orchestrator Service for AI Trading Agents</p>
+  <img src="./logo.png" alt="Neleus logo" width="148" />
 </p>
 
----
+<h1 align="center">Neleus</h1>
 
-Neleus is an **AI Agent Orchestrator Service** for building intelligent trading agents. It combines a high-performance Rust core with a Python AI framework featuring:
+<p align="center">
+  <em>Trade Hyperliquid from the terminal.</em>
+</p>
 
-- 🧠 **LLM-Powered Reasoning** - OpenAI, Anthropic, Ollama integration
-- 💾 **Persistent Memory** - Agents remember and learn from past decisions  
-- 🔧 **Tool Framework** - Market data, analysis, execution, and more
-- 📡 **Agent Communication** - Agents can share signals and coordinate
-- 📊 **Data Formatting** - Optimal data presentation for LLM consumption
+<p align="center">
+  A Hyperliquid-first CLI and Python toolkit powered by a Rust core.
+  Search markets, run technical scans, stream live order books,
+  backtest strategies, and scaffold Python trading projects.
+</p>
 
-## 🚀 Quick Start - AI Agent
+<p align="center">
+  <a href="https://neleus.trade">Website</a>
+  ·
+  <a href="./docs/index.md">Docs</a>
+  ·
+  <a href="https://github.com/auralshin/neleus">GitHub</a>
+</p>
 
-```bash
-# Create a new AI trading agent
-neleus new-agent my_trading_agent
-cd my_trading_agent
+<p align="center">
+  <img alt="Rust Core" src="https://img.shields.io/badge/Core-Rust-0b1220?style=for-the-badge&logo=rust" />
+  <img alt="CLI" src="https://img.shields.io/badge/Interface-CLI-0b1220?style=for-the-badge&logo=gnubash" />
+  <img alt="Venue" src="https://img.shields.io/badge/Venue-Hyperliquid-0b1220?style=for-the-badge" />
+</p>
 
-# Configure your agent
-# - Edit personality.yaml (trading style, risk tolerance)
-# - Edit info.yaml (LLM provider, tools, instruments)
+## What Neleus Does
 
-# Set your API key
-export OPENAI_API_KEY="your-key-here"
+| Workflow | What You Get |
+| --- | --- |
+| Market discovery | Search and list Hyperliquid spot, default perps, and HIP-3 markets |
+| Technical analysis | Single-market reads with RSI, trend, momentum, support, and resistance |
+| Market scanning | Ranked terminal scans across a bounded set of markets |
+| Live monitoring | Real-time L2 order book view from the Rust WebSocket path |
+| Strategy development | Python project scaffolding with a Rust-backed runtime |
+| Backtesting | Run strategy backtests against Hyperliquid market data |
 
-# Run the agent
-python main.py
-```
-
-### Example Agent
-
-```python
-from neleus.ai import AIAgent, AgentConfig, MemoryType
-
-class MyTradingAgent(AIAgent):
-    async def decide(self, context):
-        # Get market data
-        data = await self.execute_tool("get_market_data", instrument="BTC-PERP")
-        
-        # Think with LLM
-        reasoning = await self.think(f"Analyze {data}. Should I buy, sell, or hold?")
-        
-        # Remember this decision
-        await self.remember(
-            f"Decided to {reasoning}",
-            memory_type=MemoryType.DECISION
-        )
-        
-        return {"action": "hold", "reasoning": reasoning}
-```
-
-## 📚 Documentation
-
-**Complete documentation is now available:**
-- 🚀 [**Getting Started**](./docs/GETTING_STARTED.md) - Installation, setup, and first strategy
-- � [**Usage Guide**](./docs/USAGE.md) - **NEW!** Comprehensive usage documentation
-- �📖 [**API Reference**](./docs/API_REFERENCE.md) - Complete API documentation
-- ⌨️ [**CLI Reference**](./docs/CLI_REFERENCE.md) - Command-line tools
-- 💡 [**Examples**](./docs/EXAMPLES.md) - Strategy examples and tutorials
-- ⚙️ [**Configuration**](./docs/CONFIGURATION.md) - Setup and configuration
-- ⚡ [**Quick Reference**](./docs/QUICK_REFERENCE.md) - Cheat sheet
-- 🏗️ [**Architecture**](./docs/ARCHITECTURE.md) - System design
-
-**[📖 View Full Documentation Index](./docs/INDEX.md)**
-
-
-### Installation
-
-#### Prerequisites
-- Python 3.8+
-- Rust toolchain (for building the extension)
-
-#### Install from Source
+## Quick Start
 
 ```bash
-# Clone the repository
-git clone https://github.com/auralshin/neleus.git
-cd neleus
-
-# Create virtual environment
 python3 -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+source .venv/bin/activate
 
-# Install maturin (builds Rust extensions for Python)
 pip install maturin
-
-# Build and install the Rust extension
-cd crates/pybridge
-maturin develop --release
-cd ../..
-
-# Install Python dependencies
+maturin develop --release -m crates/pybridge/Cargo.toml
 pip install -e python/
 ```
 
-The Rust extension (`neleus_core`) is **required** - Neleus does not have a Python fallback.
-
-### Create a Project
+No project is required for the market-facing commands:
 
 ```bash
-neleus create my_trading_project
-cd my_trading_project
+neleus about
+neleus market search BTC
+neleus market scan --scope perps
+neleus market book BTC-PERP
+neleus market analyze HYPE-PERP
 ```
 
-### Configure Credentials
-
-Edit `.env` with your API keys:
+When you want to write strategy code:
 
 ```bash
-HYPERLIQUID_PRIVATE_KEY=your_key_here
-HYPERLIQUID_TESTNET=true
+neleus new my_strategy_project
+cd my_strategy_project
+
+neleus backtest --strategy momentum
+neleus run --mode once --strategy momentum
+neleus run --mode daemon --strategy momentum
 ```
 
-### Create a Strategy
+## CLI Highlights
 
-```bash
-neleus new strategy --name MyMomentum
-```
-
-### Edit Your Strategy
-
-```python
-# strategies/my_momentum.py
-from neleus import Strategy, StrategyContext, Bar, OrderSide, InstrumentId, Venue, InstrumentType
-from decimal import Decimal
-from typing import Optional
-
-class MyMomentum(Strategy):
-    def __init__(self, lookback=20, threshold=0.02):
-        super().__init__("MyMomentum")
-        self.lookback = lookback
-        self.threshold = Decimal(str(threshold))
-        self.prices: list[Decimal] = []
-        self.instrument: Optional[InstrumentId] = None
-    
-    def on_start(self, ctx: StrategyContext) -> None:
-        self.instrument = InstrumentId(
-            venue=Venue.Hyperliquid,
-            symbol="ETH",
-            instrument_type=InstrumentType.Perp,
-        )
-    
-    def on_bar(self, ctx: StrategyContext, bar: Bar) -> None:
-        self.prices.append(Decimal(str(bar.close)))
-        if len(self.prices) >= self.lookback:
-            momentum = (self.prices[-1] - self.prices[-self.lookback]) / self.prices[-self.lookback]
-            if momentum > self.threshold:
-                ctx.market_order(bar.instrument_id, OrderSide.Buy, 0.1)
-```
-
-### Run Backtest
-
-```bash
+```text
+neleus about
+neleus market search <query>
+neleus market list --scope perps|hip3|all-perps|spot
+neleus market analyze <symbol>
+neleus market scan --scope perps|hip3|all-perps|spot
+neleus market book <symbol>
+neleus new <name>
+neleus init
 neleus backtest
-```
-
-### Open Dashboard
-
-```bash
-neleus ui
-```
-
-Opens a web dashboard at `http://localhost:8080`:
-
-- View price charts and orderbook
-- Configure strategy parameters
-- Run backtests with visual results
-- Monitor positions and PnL
-
-## Project Structure
-
-After running `neleus create`:
-
-```
-my_project/
-├── .env              # API keys (never commit!)
-├── .env.example      # Example credentials
-├── .gitignore        # Pre-configured
-├── config.yaml       # Project configuration
-├── run_backtest.py   # Backtest runner
-├── strategies/       # Your strategies
-├── configs/          # Strategy configs
-├── data/             # Market data cache
-├── logs/             # Application logs
-└── reports/          # Backtest reports
-```
-
-## Configuration
-
-### Project Config (`config.yaml`)
-
-```yaml
-project:
-  name: "my_project"
-
-venues:
-  hyperliquid:
-    enabled: true
-    mode: paper  # backtest | paper | live
-
-instruments:
-  - symbol: BTC
-    venue: hyperliquid
-    type: perp
-
-risk:
-  max_position_size: 1.0
-  max_drawdown_pct: 10.0
-  daily_loss_limit: 500.0
-
-backtest:
-  start_date: "2024-01-01"
-  end_date: "2024-12-31"
-  initial_capital: 10000.0
-```
-
-### Environment Variables (`.env`)
-
-```bash
-# Hyperliquid
-HYPERLIQUID_PRIVATE_KEY=
-HYPERLIQUID_TESTNET=true
-
-# Lighter
-LIGHTER_API_KEY=
-LIGHTER_API_SECRET=
-LIGHTER_TESTNET=true
-
-# Overrides
-NELEUS_LOG_LEVEL=INFO
-NELEUS_MAX_POSITION_SIZE=1.0
-```
-
-## CLI Reference
-
-| Command | Description |
-|---------|-------------|
-| `neleus create [name]` | Create a new project |
-| `neleus new strategy --name NAME` | Create a new strategy |
-| `neleus backtest` | Run backtest |
-| `neleus backtest --strategy NAME` | Backtest specific strategy |
-| `neleus run --mode paper` | Start paper trading |
-| `neleus run --mode live` | Start live trading |
-| `neleus ui` | Open web dashboard |
-| `neleus config show` | Show configuration |
-| `neleus config validate` | Validate configuration |
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                   AI Agent Layer                            │
-│  LLM Reasoning • Memory • Tools • Communication            │
-└─────────────────────────────────────────────────────────────┘
-                              │
-┌─────────────────────────────────────────────────────────────┐
-│                     Python Layer                            │
-│  Strategies • Indicators • Config • Research • Reporting   │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                    PyO3 Bridge (thin)
-                              │
-┌─────────────────────────────────────────────────────────────┐
-│                      Rust Core                              │
-│  Engine • Order State Machine • Risk • Positions • PnL    │
-└─────────────────────────────────────────────────────────────┘
-                              │
-              ┌───────────────┼───────────────┐
-              │               │               │
-         ┌────▼────┐    ┌────▼────┐    ┌────▼────┐
-         │Hyperliquid│   │ Lighter │    │  More   │
-         │ Adapter   │   │ Adapter │    │ Venues  │
-         └──────────┘    └─────────┘    └─────────┘
+neleus run --mode once|daemon
+neleus strategy list|new|show
+neleus db status
+neleus db init
+neleus info
 ```
 
 ## Documentation
 
-- [Python Package](python/README.md) - Strategy development guide
-- [Architecture](docs/ARCHITECTURE.md) - System design and data flow
-- [Status](docs/STATUS.md) - Component completion status and recent changes
+The full usage guides live in [`docs/index.md`](./docs/index.md) and can be
+served as a Zensical site.
 
-## Supported Venues
+Run the docs locally:
 
-| Venue | Market Data | Order Execution | Status |
-|-------|-------------|-----------------|--------|
-| Hyperliquid |  |  | Production Ready |
-| Lighter |  |  | Production Ready |
-| Polymarket |  |  | Production Ready |
+```bash
+pip install -r docs/requirements.txt
+zensical serve
+```
 
-## Key Features
+Build the static site:
 
-### 🤖 AI Agent Framework
-- **AIAgent Base Class** - Abstract base for building intelligent trading agents
-- **Memory System** - Persistent memory with semantic search capabilities
-- **Tool Framework** - Extensible tools for market data, analysis, execution
-- **LLM Integration** - OpenAI, Anthropic, Ollama with provider abstraction
-- **Agent Communication** - Message bus for multi-agent coordination
+```bash
+zensical build
+```
 
-### ⚡ Trading Infrastructure
-- **Rust Core Engine** - High-performance event loop and order matching
-- **Python Strategy Layer** - Write strategies with NumPy, Pandas, SciPy
-- **Unified Adapter System** - ExecutionClient and DataClient traits
-- **Full Backtesting** - Position tracking, P&L calculation, performance metrics
-- **Risk Management** - Dynamic limits, drawdown protection, leverage controls
-- **Event Persistence** - TimescaleDB integration for replay and analysis
+The docs cover:
+- installation and local setup
+- no-project CLI workflows
+- market search, list, analysis, scan, and live order book usage
+- project scaffolding and strategy commands
+- runtime and backtesting
+- configuration, database adapters, and Hyperliquid usage notes
 
-## License
+## Current Scope
 
-MIT License
+Implemented now:
+- no-project market search, listing, analysis, scans, and live order book monitoring
+- Python project scaffolding
+- strategy backtesting
+- one-shot and daemon strategy runtimes
+- database-backed runtime order/fill monitoring through `TradeMonitor`
+- database schema inspection and initialization through `neleus db status` and `neleus db init`
+
+Not implemented yet:
+- a dedicated `neleus trade` command separate from the current runtime/core APIs
+- broader live operations tooling beyond the current trade-monitoring path
+
+## Links
+
+- Website: [https://neleus.trade](https://neleus.trade)
+- GitHub: [https://github.com/auralshin/neleus](https://github.com/auralshin/neleus)
+- Docs source: [./docs/index.md](./docs/index.md)

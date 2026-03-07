@@ -375,7 +375,7 @@ impl PyLiveNodeConfig {
         venue,
         api_key = None,
         api_secret = None,
-        use_testnet = true,
+        use_testnet = false,
         initial_capital = 100000.0,
         max_position_notional = 50000.0,
         max_daily_loss = 5000.0,

@@ -34,7 +34,8 @@ pub use websocket::{
 
 pub use historical::{
     CandleInterval, HyperliquidAssetInfo, HyperliquidCandle, HyperliquidDataFeed,
-    HyperliquidDataPoint, HyperliquidHistoricalClient, HyperliquidMeta,
+    HyperliquidDataPoint, HyperliquidHistoricalClient, HyperliquidMeta, HyperliquidSpotMarketInfo,
+    HyperliquidSpotMeta, HyperliquidSpotTokenInfo,
 };
 
 pub use execution::{HyperliquidExecution, HyperliquidExecutionClient};

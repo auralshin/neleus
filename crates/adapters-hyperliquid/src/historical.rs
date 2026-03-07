@@ -98,6 +98,8 @@ struct CandleSnapshotParams {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HyperliquidMeta {
+    #[serde(rename = "collateralToken", default)]
+    pub collateral_token: Option<String>,
     pub universe: Vec<HyperliquidAssetInfo>,
 }
 
@@ -108,6 +110,37 @@ pub struct HyperliquidAssetInfo {
     pub sz_decimals: u32,
     #[serde(rename = "maxLeverage")]
     pub max_leverage: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HyperliquidSpotMeta {
+    pub tokens: Vec<HyperliquidSpotTokenInfo>,
+    pub universe: Vec<HyperliquidSpotMarketInfo>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HyperliquidSpotTokenInfo {
+    pub name: String,
+    #[serde(rename = "szDecimals")]
+    pub sz_decimals: u32,
+    #[serde(rename = "weiDecimals", default)]
+    pub wei_decimals: Option<u32>,
+    pub index: u32,
+    #[serde(rename = "tokenId", default)]
+    pub token_id: Option<String>,
+    #[serde(rename = "isCanonical", default)]
+    pub is_canonical: Option<bool>,
+    #[serde(rename = "fullName", default)]
+    pub full_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HyperliquidSpotMarketInfo {
+    pub name: String,
+    pub index: u32,
+    pub tokens: Vec<u32>,
+    #[serde(rename = "isCanonical", default)]
+    pub is_canonical: Option<bool>,
 }
 
 pub struct HyperliquidHistoricalClient {
@@ -212,16 +245,26 @@ impl HyperliquidHistoricalClient {
     }
 
     pub async fn fetch_meta(&self) -> Result<HyperliquidMeta, HyperliquidError> {
+        self.fetch_meta_with_dex(None).await
+    }
+
+    pub async fn fetch_meta_with_dex(
+        &self,
+        dex: Option<&str>,
+    ) -> Result<HyperliquidMeta, HyperliquidError> {
         let url = format!("{}/info", self.config.rest_url);
 
         #[derive(Serialize)]
         struct MetaRequest {
             #[serde(rename = "type")]
             req_type: String,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            dex: Option<String>,
         }
 
         let request = MetaRequest {
             req_type: "meta".to_string(),
+            dex: dex.map(str::to_string),
         };
 
         let response = self
@@ -242,6 +285,82 @@ impl HyperliquidHistoricalClient {
         }
 
         let meta: HyperliquidMeta = response
+            .json()
+            .await
+            .map_err(|e| HyperliquidError::InvalidResponse(e.to_string()))?;
+
+        Ok(meta)
+    }
+
+    pub async fn fetch_all_perp_metas(&self) -> Result<Vec<HyperliquidMeta>, HyperliquidError> {
+        let url = format!("{}/info", self.config.rest_url);
+
+        #[derive(Serialize)]
+        struct AllPerpMetasRequest {
+            #[serde(rename = "type")]
+            req_type: String,
+        }
+
+        let request = AllPerpMetasRequest {
+            req_type: "allPerpMetas".to_string(),
+        };
+
+        let response = self
+            .http_client
+            .post(&url)
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| HyperliquidError::RequestError(e.to_string()))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let text = response.text().await.unwrap_or_default();
+            return Err(HyperliquidError::RequestError(format!(
+                "HTTP {}: {}",
+                status, text
+            )));
+        }
+
+        let metas: Vec<HyperliquidMeta> = response
+            .json()
+            .await
+            .map_err(|e| HyperliquidError::InvalidResponse(e.to_string()))?;
+
+        Ok(metas)
+    }
+
+    pub async fn fetch_spot_meta(&self) -> Result<HyperliquidSpotMeta, HyperliquidError> {
+        let url = format!("{}/info", self.config.rest_url);
+
+        #[derive(Serialize)]
+        struct SpotMetaRequest {
+            #[serde(rename = "type")]
+            req_type: String,
+        }
+
+        let request = SpotMetaRequest {
+            req_type: "spotMeta".to_string(),
+        };
+
+        let response = self
+            .http_client
+            .post(&url)
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| HyperliquidError::RequestError(e.to_string()))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let text = response.text().await.unwrap_or_default();
+            return Err(HyperliquidError::RequestError(format!(
+                "HTTP {}: {}",
+                status, text
+            )));
+        }
+
+        let meta: HyperliquidSpotMeta = response
             .json()
             .await
             .map_err(|e| HyperliquidError::InvalidResponse(e.to_string()))?;

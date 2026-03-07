@@ -1,0 +1,76 @@
+site_name: Neleus
+site_description: Hyperliquid-first CLI and Python toolkit powered by a Rust core
+site_url: https://neleus.trade/docs/
+repo_url: https://github.com/auralshin/neleus
+repo_name: auralshin/neleus
+docs_dir: docs
+site_dir: site
+
+theme:
+  name: material
+  logo: assets/logo.png
+  favicon: assets/logo.png
+  features:
+    - navigation.instant
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+    - search.suggest
+    - search.highlight
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: black
+      accent: blue
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: black
+      accent: light blue
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+plugins:
+  - search
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+  - tables
+
+extra_css:
+  - stylesheets/extra.css
+
+nav:
+  - Home: index.md
+  - Getting Started:
+      - Installation: getting-started/installation.md
+      - Quickstart: getting-started/quickstart.md
+  - CLI:
+      - Overview: cli/overview.md
+      - Market Workflows: cli/market.md
+  - Projects:
+      - Strategy Projects: projects.md
+      - Writing Strategies: strategy-writing.md
+      - Strategy Examples: strategy-examples.md
+      - Configuration: configuration.md
+  - Reference:
+      - Troubleshooting: troubleshooting.md
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/auralshin/neleus
+    - icon: material/web
+      link: https://neleus.trade

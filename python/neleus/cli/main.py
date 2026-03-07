@@ -1,172 +1,194 @@
 #!/usr/bin/env python3
 """
-Neleus CLI - Command Line Interface for the Neleus Agent Orchestrator
+Neleus CLI
 
-Make Your Agent Trade Smarter
-
-Commands:
-    neleus new <project-name>  - Create a new Neleus project
-    neleus new-agent <name>    - Create a new AI trading agent
-    neleus agent run <path>    - Run an AI trading agent
-    neleus agent list          - List agent projects
-    neleus init               - Initialize Neleus in current directory
-    neleus run                - Run backtest or live trading
-    neleus ui                 - Start the web UI dashboard
-    neleus strategy           - Manage strategies
-    neleus backtest           - Run backtests
-    neleus live               - Start live trading
-    neleus build              - Compile and validate project
-    neleus test               - Run strategy tests
+Minimal Hyperliquid-first CLI surface:
+- market analysis
+- backtesting
+- project scaffolding
+- strategy runtime (one-shot or daemon)
 """
 
-import os
-import sys
-import json
-import shutil
-import subprocess
-import webbrowser
-from pathlib import Path
-from typing import Optional, List
+from __future__ import annotations
+
+import asyncio
 from datetime import datetime
+from pathlib import Path
+from typing import Optional
 
 import typer
 from rich.console import Console
-from rich.table import Table
-from rich.panel import Panel
-from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.live import Live
 from rich.syntax import Syntax
-from rich.tree import Tree
+
+from .. import __version__
+from ..backtest_runner import BacktestRunner
+from ..config import discover_strategies, get_db_config, load_project_config
+from ..market import (
+    analyze_market,
+    list_markets,
+    scan_markets,
+    stream_l2_book,
+)
+from ..runtime import run_project_daemon, run_project_once
+from .ui import (
+    DaemonDashboard,
+    render_about_panel,
+    render_backtest_result,
+    render_brand_banner,
+    render_l2_book,
+    render_market_analysis,
+    render_market_catalog,
+    render_market_scan,
+    render_project_created,
+    render_project_info,
+    render_runtime_result,
+    render_strategy_list,
+)
 
 console = Console()
 
-# =============================================================================
-# ASCII Art Banner
-# =============================================================================
-
-NELEUS_BANNER = """
-[bold cyan]
-    ███╗   ██╗███████╗██╗     ███████╗██╗   ██╗███████╗
-    ████╗  ██║██╔════╝██║     ██╔════╝██║   ██║██╔════╝
-    ██╔██╗ ██║█████╗  ██║     █████╗  ██║   ██║███████╗
-    ██║╚██╗██║██╔══╝  ██║     ██╔══╝  ██║   ██║╚════██║
-    ██║ ╚████║███████╗███████╗███████╗╚██████╔╝███████║
-    ╚═╝  ╚═══╝╚══════╝╚══════╝╚══════╝ ╚═════╝ ╚══════╝
-[/bold cyan]
-[bold magenta]    Agent Orchestrator Service[/bold magenta]
-    [dim]Make Your Agent Trade Smarter[/dim]
-    [dim]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/dim]
-"""
-
-def print_banner(short: bool = False):
-    """Print the Neleus banner."""
-    if short:
-        console.print(NELEUS_BANNER)
-    else:
-        console.print(NELEUS_BANNER)
-
-
 app = typer.Typer(
     name="neleus",
-    help="Neleus - Agent Orchestrator Service · Make Your Agent Trade Smarter",
+    help="Hyperliquid-first trading CLI for market analysis, backtesting, and strategy runtimes.",
     add_completion=True,
-    rich_markup_mode="rich",
     no_args_is_help=False,
 )
-
-
-@app.callback(invoke_without_command=True)
-def main_callback(
-    ctx: typer.Context,
-    version: bool = typer.Option(False, "--version", "-v", help="Show version"),
-    no_banner: bool = typer.Option(False, "--no-banner", help="Hide ASCII banner"),
-):
-    """
-    Neleus — Agent Orchestrator Service
-    
-    Make Your Agent Trade Smarter
-    
-    AI-powered trading agents with memory, reasoning, and execution.
-    """
-    # Always show banner unless suppressed
-    if not no_banner:
-        if version or ctx.invoked_subcommand is None:
-            print_banner()  # Full banner for version or no command
-        else:
-            print_banner(short=True)  # Short banner for commands
-    
-    if version:
-        console.print(f"[dim]Rust Core:[/dim] neleus_core 0.1.0")
-        raise typer.Exit()
-    
-    if ctx.invoked_subcommand is None:
-        console.print("[bold]Usage:[/bold] neleus [OPTIONS] COMMAND [ARGS]...")
-        console.print()
-        console.print("[bold magenta]AI Agent Commands:[/bold magenta]")
-        console.print("  [cyan]new-agent[/cyan]  Create a new AI trading agent")
-        console.print("  [cyan]agent[/cyan]      Manage and run AI agents")
-        console.print("  [cyan]demo[/cyan]       Interactive demos and visualizations")
-        console.print()
-        console.print("[bold]Demo Commands:[/bold]")
-        console.print("  [cyan]demo agent[/cyan]       AI trading agent demo (Ollama)")
-        console.print("  [cyan]demo competition[/cyan] Multi-agent trading competition")
-        console.print("  [cyan]demo markets[/cyan]     Live market data viewer")
-        console.print("  [cyan]demo volatility[/cyan]  Volatility analysis")
-        console.print("  [cyan]demo backtest[/cyan]    Quick strategy backtest")
-        console.print()
-        console.print("[bold]Project Commands:[/bold]")
-        console.print("  [cyan]new[/cyan]        Create a new Neleus project")
-        console.print("  [cyan]init[/cyan]       Initialize Neleus in current directory")
-        console.print("  [cyan]run[/cyan]        Run a strategy (backtest or live)")
-        console.print("  [cyan]ui[/cyan]         Launch the dashboard UI")
-        console.print("  [cyan]backtest[/cyan]   Run a backtest")
-        console.print("  [cyan]live[/cyan]       Start live trading")
-        console.print("  [cyan]strategy[/cyan]   Manage trading strategies")
-        console.print("  [cyan]deploy[/cyan]     Deploy strategies to cloud")
-        console.print("  [cyan]agents[/cyan]     Manage running agents")
-        console.print("  [cyan]signals[/cyan]    View real-time signals")
-        console.print("  [cyan]metrics[/cyan]    Performance metrics dashboard")
-        console.print()
-        console.print("Run [cyan]neleus <command> --help[/cyan] for more information.")
-        console.print()
-
-# Sub-commands
-strategy_app = typer.Typer(help="Strategy management commands")
+market_app = typer.Typer(help="Search, analyze, scan, and monitor Hyperliquid markets.")
+strategy_app = typer.Typer(help="Manage project strategy files.")
+db_app = typer.Typer(help="Database adapter management (status, schema init).")
+app.add_typer(market_app, name="market")
 app.add_typer(strategy_app, name="strategy")
+app.add_typer(db_app, name="db")
 
-# Import and register managed service CLI commands
-from .deploy import deploy_app
-from .agents import agents_app
-from .signals import signals_app
-from .metrics import metrics_app
-from .agent_project import agent_project_app, new_agent as new_agent_cmd
-from .demo import demo_app
-
-app.add_typer(deploy_app, name="deploy")
-app.add_typer(agents_app, name="agents")
-app.add_typer(signals_app, name="signals")
-app.add_typer(metrics_app, name="metrics")
-app.add_typer(demo_app, name="demo")
-
-# AI Agent commands
-app.add_typer(agent_project_app, name="agent")
-app.command("new-agent")(new_agent_cmd)
-
-# =============================================================================
-# Configuration
-# =============================================================================
-
-try:
-    from neleus import __version__ as NELEUS_VERSION
-except Exception:
-    NELEUS_VERSION = "0.1.0"
-
-TEMPLATE_DIR = Path(__file__).parent.parent / "templates"
 CONFIG_FILE = "neleus.toml"
 
+PROJECT_TEMPLATE = {
+    ".gitignore": """# Local secrets
+.env
 
-def get_project_root() -> Optional[Path]:
-    """Find the project root by looking for neleus.toml"""
-    current = Path.cwd()
+# Python cache
+__pycache__/
+strategies/__pycache__/
+configs/__pycache__/
+""",
+    "neleus.toml": """[project]
+name = "{project_name}"
+version = "0.1.0"
+created_at = "{created_at}"
+
+[hyperliquid]
+testnet = false
+
+[market]
+symbol = "BTC-PERP"
+timeframe = "1h"
+lookback_bars = 200
+
+[backtest]
+initial_capital = 10000.0
+maker_fee_bps = 2.0
+taker_fee_bps = 5.0
+slippage_bps = 5.0
+
+[runtime]
+mode = "once"
+poll_interval_seconds = 60
+
+# ---------------------------------------------------------------------------
+# Database adapter
+# ---------------------------------------------------------------------------
+# backend: "none" | "postgres" | "timescale"
+#   none      - no persistence (default)
+#   postgres  - PostgreSQL event store + trade monitoring
+#   timescale - TimescaleDB hypertables for market data + trade monitoring
+#
+# dsn: PostgreSQL connection string.
+#   Keep this empty in committed config if it contains credentials.
+#   Prefer storing secrets in a local .env via NELEUS_DB_DSN.
+#
+# trade_monitoring: when true, strategy-generated orders are automatically
+#   recorded to hl_orders / hl_fills tables via the TradeMonitor adapter.
+# ---------------------------------------------------------------------------
+[database]
+backend = "{db_backend}"
+dsn = "{db_dsn}"
+pool_size = 4
+batch_size = 1000
+flush_interval_ms = 100
+trade_monitoring = {trade_monitoring}
+""",
+    ".env.example": """# Hyperliquid
+# Public Hyperliquid market data uses the /info API and does not require credentials.
+HYPERLIQUID_TESTNET=false
+
+# Signed trading actions use /exchange with a wallet or API-wallet signature.
+# These are not needed for market analysis or backtesting.
+# HYPERLIQUID_ACCOUNT_ADDRESS=0x...
+# HYPERLIQUID_SIGNER_PRIVATE_KEY=
+
+# Database adapter
+# Override the database.backend from neleus.toml
+NELEUS_DB_BACKEND=none
+
+# PostgreSQL / TimescaleDB connection string.
+# Prefer storing real credentials in a local .env file, not in neleus.toml.
+# If set, this takes precedence over database.dsn in neleus.toml.
+# Example: postgresql://user:password@localhost:5432/neleus
+NELEUS_DB_DSN=
+""",
+    "main.py": '''from pathlib import Path
+
+from neleus.runtime import run_project_once
+
+
+if __name__ == "__main__":
+    result = run_project_once(Path(__file__).parent)
+    print(result.to_dict())
+''',
+    "strategies/__init__.py": '"""Project strategies."""\n',
+    "strategies/momentum.py": '''from neleus import OrderSide, Strategy, StrategyContext, Bar
+
+
+class MomentumStrategy(Strategy):
+    def __init__(self, lookback: int = 20):
+        super().__init__("momentum")
+        self.lookback = lookback
+        self.prices: list[float] = []
+
+    def on_bar(self, ctx: StrategyContext, bar: Bar) -> None:
+        self.prices.append(float(bar.close))
+        if len(self.prices) < self.lookback:
+            return
+
+        window = self.prices[-self.lookback:]
+        baseline = sum(window[:-1]) / max(len(window) - 1, 1)
+        if bar.close > baseline * 1.01:
+            ctx.market_order(bar.instrument_id, OrderSide.Buy, 0.01)
+''',
+}
+
+STRATEGY_TEMPLATE = '''from neleus import OrderSide, Strategy, StrategyContext, Bar
+
+
+class {class_name}(Strategy):
+    def __init__(self):
+        super().__init__("{strategy_name}")
+        self.prices: list[float] = []
+
+    def on_bar(self, ctx: StrategyContext, bar: Bar) -> None:
+        self.prices.append(float(bar.close))
+        if len(self.prices) < 20:
+            return
+
+        average_price = sum(self.prices[-20:]) / 20
+        if bar.close > average_price * 1.01:
+            ctx.market_order(bar.instrument_id, OrderSide.Buy, 0.01)
+'''
+
+
+def get_project_root(start: Optional[Path] = None) -> Optional[Path]:
+    current = (start or Path.cwd()).resolve()
     while current != current.parent:
         if (current / CONFIG_FILE).exists():
             return current
@@ -174,775 +196,624 @@ def get_project_root() -> Optional[Path]:
     return None
 
 
-def ensure_project():
-    """Ensure we're in a Neleus project"""
+def ensure_project() -> Path:
     root = get_project_root()
     if root is None:
-        console.print("[red]Error:[/red] Not in a Neleus project. Run 'neleus new <name>' or 'neleus init' first.")
+        console.print(f"[red]No {CONFIG_FILE} found in the current directory tree.[/red]")
         raise typer.Exit(1)
     return root
 
 
-# =============================================================================
-# Project Templates
-# =============================================================================
+def create_project(
+    project_path: Path,
+    project_name: str,
+    db_backend: str = "none",
+    db_dsn: str = "",
+    trade_monitoring: bool = False,
+) -> None:
+    project_path.mkdir(parents=True, exist_ok=False)
+    for relative_path, content in PROJECT_TEMPLATE.items():
+        full_path = project_path / relative_path
+        full_path.parent.mkdir(parents=True, exist_ok=True)
+        full_path.write_text(
+            content.format(
+                project_name=project_name,
+                created_at=datetime.utcnow().isoformat(),
+                db_backend=db_backend,
+                db_dsn="",
+                trade_monitoring=str(trade_monitoring).lower(),
+            )
+        )
 
-PROJECT_TEMPLATE = {
-    "neleus.toml": '''# Neleus Project Configuration
-[project]
-name = "{project_name}"
-version = "0.1.0"
-description = "A Neleus trading project"
-created = "{created_date}"
-
-[trading]
-default_venue = "hyperliquid"
-network = "testnet"
-default_timeframe = "1h"
-
-[backtest]
-initial_capital = 100000.0
-commission_bps = 5.0
-slippage_model = "fixed"
-slippage_bps = 2.0
-
-[risk]
-max_position_pct = 10.0
-max_daily_loss_pct = 5.0
-max_leverage = 5.0
-dynamic_limits = true
-
-[ui]
-port = 8765
-auto_open = true
-theme = "dark"
-
-[logging]
-level = "info"
-file = "logs/neleus.log"
-''',
-    
-    "strategies/__init__.py": '''"""Neleus Strategies Package - Your trading strategies go here."""
-''',
-    
-    "strategies/momentum_strategy.py": '''"""
-Momentum Strategy - Example template
-
-Uses price momentum (rate of change) to generate trading signals.
-"""
-
-from neleus import Strategy, StrategyContext, OrderSide
-from typing import List
+    _write_local_env(project_path, db_dsn)
 
 
-class MomentumStrategy(Strategy):
-    """
-    Momentum strategy using price rate of change.
-    
-    Parameters:
-        lookback: Number of bars for momentum calculation
-        entry_threshold: Momentum threshold to enter (e.g., 0.02 = 2%)
-        position_size: Position size
-    """
-    
-    def __init__(
-        self,
-        lookback: int = 20,
-        entry_threshold: float = 0.02,
-        position_size: float = 0.1,
-    ):
-        super().__init__()
-        self.lookback = lookback
-        self.entry_threshold = entry_threshold
-        self.position_size = position_size
-        
-        self.prices: List[float] = []
-        self.in_position = False
-        self.position_side = None
-    
-    def on_bar(self, ctx: StrategyContext, bar) -> None:
-        """Process each bar and generate orders."""
-        self.prices.append(bar.close)
-        
-        if len(self.prices) < self.lookback:
+def _write_local_env(project_path: Path, db_dsn: str) -> None:
+    if not db_dsn:
+        return
+
+    env_path = project_path / ".env"
+    env_line = f"NELEUS_DB_DSN={db_dsn}\n"
+
+    if env_path.exists():
+        existing = env_path.read_text()
+        if "NELEUS_DB_DSN=" in existing:
             return
-        
-        # Keep only lookback period
-        self.prices = self.prices[-self.lookback:]
-        
-        # Calculate momentum (rate of change)
-        momentum = (self.prices[-1] - self.prices[0]) / self.prices[0]
-        
-        # Generate signals
-        if not self.in_position:
-            if momentum > self.entry_threshold:
-                # Strong positive momentum - go long
-                ctx.market_order(bar.instrument_id, OrderSide.Buy, self.position_size)
-                self.in_position = True
-                self.position_side = "long"
-            elif momentum < -self.entry_threshold:
-                # Strong negative momentum - go short
-                ctx.market_order(bar.instrument_id, OrderSide.Sell, self.position_size)
-                self.in_position = True
-                self.position_side = "short"
-        else:
-            # Exit logic
-            if self.position_side == "long" and momentum < 0:
-                ctx.market_order(bar.instrument_id, OrderSide.Sell, self.position_size)
-                self.in_position = False
-            elif self.position_side == "short" and momentum > 0:
-                ctx.market_order(bar.instrument_id, OrderSide.Buy, self.position_size)
-                self.in_position = False
-''',
-    
-    "strategies/mean_reversion_strategy.py": '''"""
-Mean Reversion Strategy - Example template
+        separator = "" if not existing or existing.endswith("\n") else "\n"
+        env_path.write_text(
+            f"{existing}{separator}# Local database credentials for Neleus.\n{env_line}"
+        )
+        return
 
-Uses Bollinger Bands to identify overbought/oversold conditions.
-"""
-
-from neleus import Strategy, StrategyContext, OrderSide
-from typing import List
+    env_path.write_text(
+        "# Local database credentials for Neleus.\n"
+        "# Do not commit this file.\n"
+        f"{env_line}"
+    )
 
 
-class MeanReversionStrategy(Strategy):
-    """
-    Mean reversion using Bollinger Bands.
-    
-    Parameters:
-        period: Period for moving average
-        num_std: Number of standard deviations for bands
-        position_size: Position size
-    """
-    
-    def __init__(
-        self,
-        period: int = 20,
-        num_std: float = 2.0,
-        position_size: float = 0.1,
-    ):
-        super().__init__()
-        self.period = period
-        self.num_std = num_std
-        self.position_size = position_size
-        
-        self.prices: List[float] = []
-        self.in_position = False
-        self.position_side = None
-    
-    def on_bar(self, ctx: StrategyContext, bar) -> None:
-        """Process each bar and generate orders."""
-        self.prices.append(bar.close)
-        
-        if len(self.prices) < self.period:
-            return
-        
-        self.prices = self.prices[-self.period:]
-        
-        # Calculate Bollinger Bands
-        sma = sum(self.prices) / len(self.prices)
-        variance = sum((p - sma) ** 2 for p in self.prices) / len(self.prices)
-        std = variance ** 0.5
-        
-        upper_band = sma + (self.num_std * std)
-        lower_band = sma - (self.num_std * std)
-        current_price = bar.close
-        
-        if not self.in_position:
-            if current_price < lower_band:
-                # Price below lower band - buy (expect reversion up)
-                ctx.market_order(bar.instrument_id, OrderSide.Buy, self.position_size)
-                self.in_position = True
-                self.position_side = "long"
-            elif current_price > upper_band:
-                # Price above upper band - sell (expect reversion down)
-                ctx.market_order(bar.instrument_id, OrderSide.Sell, self.position_size)
-                self.in_position = True
-                self.position_side = "short"
-        else:
-            # Exit at mean
-            if self.position_side == "long" and current_price >= sma:
-                ctx.market_order(bar.instrument_id, OrderSide.Sell, self.position_size)
-                self.in_position = False
-            elif self.position_side == "short" and current_price <= sma:
-                ctx.market_order(bar.instrument_id, OrderSide.Buy, self.position_size)
-                self.in_position = False
-''',
-    
-    "data/.gitkeep": "",
-    "logs/.gitkeep": "",
-    "notebooks/.gitkeep": "",
-    "backtests/__init__.py": '"""Backtest configurations."""\n',
-    "backtests/results/.gitkeep": "",
-    "config/__init__.py": '"""Configuration management."""\n',
-    
-    "config/venues.py": '''"""
-Venue configurations - Load from environment variables.
-IMPORTANT: Never commit API keys to version control!
-"""
-
-import os
-
-class HyperliquidConfig:
-    def __init__(self):
-        self.api_key = os.getenv("HYPERLIQUID_API_KEY")
-        self.api_secret = os.getenv("HYPERLIQUID_SECRET_KEY")
-        self.wallet = os.getenv("HYPERLIQUID_WALLET")
-        self.network = os.getenv("HYPERLIQUID_NETWORK", "testnet")
-
-class LighterConfig:
-    def __init__(self):
-        self.api_key = os.getenv("LIGHTER_API_KEY")
-        self.private_key = os.getenv("LIGHTER_PRIVATE_KEY")
-        self.network = os.getenv("LIGHTER_NETWORK", "testnet")
-
-VENUES = {"hyperliquid": HyperliquidConfig, "lighter": LighterConfig}
-''',
-    
-    ".env.example": '''# Neleus Environment Variables
-# Copy to .env and fill in your values
-
-HYPERLIQUID_API_KEY=
-HYPERLIQUID_SECRET_KEY=
-HYPERLIQUID_WALLET=
-HYPERLIQUID_NETWORK=testnet
-
-LIGHTER_API_KEY=
-LIGHTER_PRIVATE_KEY=
-LIGHTER_NETWORK=testnet
-
-NELEUS_UI_PORT=8765
-''',
-    
-    ".gitignore": '''__pycache__/
-*.py[cod]
-.venv/
-venv/
-.env
-logs/*.log
-data/*.csv
-data/*.parquet
-backtests/results/*.html
-backtests/results/*.json
-!.gitkeep
-.idea/
-.vscode/
-*.egg-info/
-''',
-    
-    "README.md": '''# {project_name}
-
-A trading project built with [Neleus](https://github.com/auralshin/neleus).
-
-## Quick Start
-
-```bash
-# Configure API keys
-cp .env.example .env
-
-# Start the dashboard
-neleus ui
-
-# Run a backtest
-neleus backtest --strategy momentum --symbol BTC-PERP
-```
-
-## Project Structure
-
-```
-{project_name}/
-├── strategies/          # Your trading strategies
-├── backtests/          # Backtest configs and results
-├── config/             # Configuration files
-├── data/               # Market data cache
-├── logs/               # Log files
-└── neleus.toml         # Project configuration
-```
-
-## Creating a Strategy
-
-```python
-from neleus import Strategy
-from neleus.types import Signal
-
-class MyStrategy(Strategy):
-    def on_bar(self, bar):
-        if some_condition:
-            return Signal.BUY
-        return Signal.HOLD
-```
-''',
-}
+@app.callback(invoke_without_command=True)
+def app_callback(ctx: typer.Context) -> None:
+    if ctx.invoked_subcommand is None:
+        console.print(render_brand_banner())
+        console.print(ctx.get_help())
+        raise typer.Exit()
 
 
-# =============================================================================
-# Commands
-# =============================================================================
-
-@app.command()
-def new(
-    name: str = typer.Argument(..., help="Name of the new project"),
-    template: str = typer.Option("default", "--template", "-t", help="Project template"),
+@app.command("new")
+def new_project(
+    name: str = typer.Argument(..., help="Project directory name."),
+    db_backend: str = typer.Option(
+        "none",
+        "--db-backend",
+        help="Storage adapter: none, postgres, or timescale.",
+    ),
+    db_dsn: str = typer.Option(
+        "",
+        "--db-dsn",
+        help="PostgreSQL DSN, e.g. postgresql://user:pass@localhost/db. "
+             "Leave empty to configure via NELEUS_DB_DSN env var later.",
+    ),
+    trade_monitoring: bool = typer.Option(
+        False,
+        "--trade-monitoring/--no-trade-monitoring",
+        help="Enable automatic order/fill recording to the database.",
+    ),
 ):
-    """Create a new Neleus trading project."""
-    print_banner()
+    """Create a new Neleus project.
+
+    Examples
+    --------
+    # Minimal (no database)
+    neleus new my_bot
+
+    # With PostgreSQL + trade monitoring
+    neleus new my_bot --db-backend postgres --db-dsn postgresql://user:pass@localhost/neleus --trade-monitoring
+
+    # With TimescaleDB (market data hypertables)
+    neleus new my_bot --db-backend timescale --db-dsn postgresql://user:pass@localhost/neleus_ts
+    """
+    if db_backend not in ("none", "postgres", "timescale"):
+        console.print(f"[red]--db-backend must be none, postgres, or timescale (got '{db_backend}')[/red]")
+        raise typer.Exit(1)
+
     project_path = Path.cwd() / name
-    
     if project_path.exists():
-        console.print(f"[red]Error:[/red] Directory '{name}' already exists.")
+        console.print(f"[red]Directory already exists:[/red] {project_path}")
         raise typer.Exit(1)
-    
-    console.print(f"\n🌊 Creating new Neleus project: [cyan]{name}[/cyan]\n")
-    
-    with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}"), console=console) as progress:
-        task = progress.add_task("Creating project structure...", total=None)
-        
-        project_path.mkdir(parents=True)
-        
-        for file_path, content in PROJECT_TEMPLATE.items():
-            full_path = project_path / file_path
-            full_path.parent.mkdir(parents=True, exist_ok=True)
-            content = content.replace("{project_name}", name)
-            content = content.replace("{created_date}", datetime.now().isoformat())
-            full_path.write_text(content)
-        
-        progress.update(task, description="Project created!")
-    
-    console.print(Panel.fit(
-        f"""[green]✓[/green] Project '[cyan]{name}[/cyan]' created!
 
-[bold]Next steps:[/bold]
-  1. [cyan]cd {name}[/cyan]
-  2. [cyan]cp .env.example .env[/cyan]
-  3. [cyan]neleus ui[/cyan]
-
-[dim]Run a backtest:[/dim]
-  [cyan]neleus backtest --strategy momentum --symbol BTC-PERP[/cyan]
-""",
-        title="🎉 Success",
-        border_style="green",
-    ))
+    create_project(project_path, name, db_backend=db_backend, db_dsn=db_dsn, trade_monitoring=trade_monitoring)
+    console.print(render_project_created(name, db_backend=db_backend, trade_monitoring=trade_monitoring))
 
 
-@app.command()
-def init():
-    """Initialize Neleus in the current directory."""
-    print_banner()
-    current_dir = Path.cwd()
-    config_path = current_dir / CONFIG_FILE
-    
+@app.command("init")
+def init_project(
+    db_backend: str = typer.Option(
+        "none",
+        "--db-backend",
+        help="Storage adapter: none, postgres, or timescale.",
+    ),
+    db_dsn: str = typer.Option(
+        "",
+        "--db-dsn",
+        help="PostgreSQL DSN. Leave empty to configure via NELEUS_DB_DSN env var later.",
+    ),
+    trade_monitoring: bool = typer.Option(
+        False,
+        "--trade-monitoring/--no-trade-monitoring",
+        help="Enable automatic order/fill recording to the database.",
+    ),
+):
+    """Initialize the current directory as a Neleus project."""
+    if db_backend not in ("none", "postgres", "timescale"):
+        console.print(f"[red]--db-backend must be none, postgres, or timescale (got '{db_backend}')[/red]")
+        raise typer.Exit(1)
+
+    project_root = Path.cwd()
+    config_path = project_root / CONFIG_FILE
     if config_path.exists():
-        console.print("[yellow]Warning:[/yellow] neleus.toml already exists.")
+        console.print(f"[yellow]{CONFIG_FILE} already exists.[/yellow]")
         raise typer.Exit(0)
-    
-    project_name = current_dir.name
-    console.print(f"\n🌊 Initializing Neleus in: [cyan]{current_dir}[/cyan]\n")
-    
-    for file_path, content in PROJECT_TEMPLATE.items():
-        full_path = current_dir / file_path
-        if not full_path.exists():
-            full_path.parent.mkdir(parents=True, exist_ok=True)
-            content = content.replace("{project_name}", project_name)
-            content = content.replace("{created_date}", datetime.now().isoformat())
-            full_path.write_text(content)
-    
-    console.print("[green]✓[/green] Neleus initialized!")
+
+    for relative_path, content in PROJECT_TEMPLATE.items():
+        full_path = project_root / relative_path
+        if full_path.exists():
+            continue
+        full_path.parent.mkdir(parents=True, exist_ok=True)
+        full_path.write_text(
+            content.format(
+                project_name=project_root.name,
+                created_at=datetime.utcnow().isoformat(),
+                db_backend=db_backend,
+                db_dsn="",
+                trade_monitoring=str(trade_monitoring).lower(),
+            )
+        )
+
+    _write_local_env(project_root, db_dsn)
+
+    console.print(render_project_created(project_root.name, initialized=True, db_backend=db_backend, trade_monitoring=trade_monitoring))
 
 
-@app.command()
-def ui(
-    port: int = typer.Option(8501, "--port", "-p", help="Port for the UI"),
-    no_browser: bool = typer.Option(False, "--no-browser", help="Don't open browser"),
-    host: str = typer.Option("127.0.0.1", "--host", "-h", help="Host to bind to"),
-    legacy: bool = typer.Option(False, "--legacy", help="Use legacy FastAPI dashboard"),
+@market_app.command("analyze")
+def market_analyze(
+    symbol: str = typer.Argument(..., help="Hyperliquid symbol, e.g. BTC-PERP."),
+    timeframe: str = typer.Option("1h", "--timeframe", "-t", help="1m, 5m, 15m, 1h, 4h, 1d"),
+    lookback_bars: int = typer.Option(200, "--lookback-bars", "-n", min=20),
+    testnet: bool = typer.Option(False, "--testnet", help="Use Hyperliquid testnet."),
+    output: str = typer.Option("table", "--output", "-o", help="table or json"),
 ):
-    """
-    Start the Neleus web dashboard.
-    
-    Features: Risk Dashboard, Portfolio Manager, Backtest Runner,
-    and Performance Analytics.
-    
-    Uses Streamlit by default. Use --legacy for the FastAPI dashboard.
-    """
-    print_banner()
-    project_root = get_project_root()
-    
-    if legacy:
-        # Use legacy FastAPI dashboard
-        port = 8765 if port == 8501 else port  # Default legacy port
-        console.print(f"\n🌊 Starting Legacy Dashboard on [cyan]http://{host}:{port}[/cyan]\n")
-        
-        try:
-            from neleus.ui.server import run_server
-            
-            if not no_browser:
-                import threading
-                def open_browser():
-                    import time
-                    time.sleep(1.5)
-                    webbrowser.open(f"http://{host}:{port}")
-                threading.Thread(target=open_browser, daemon=True).start()
-            
-            run_server(host=host, port=port, project_root=project_root)
-            
-        except ImportError as e:
-            console.print(f"[red]Error:[/red] UI dependencies not installed.")
-            console.print(f"[dim]{e}[/dim]")
-            raise typer.Exit(1)
-    else:
-        # Use Streamlit dashboard
-        console.print(f"\n🌊 Starting Neleus Dashboard on [cyan]http://{host}:{port}[/cyan]\n")
-        console.print("[dim]Using Streamlit dashboard (use --legacy for FastAPI)[/dim]\n")
-        
-        try:
-            import subprocess
-            import sys
-            
-            streamlit_app_path = Path(__file__).parent.parent / "ui" / "streamlit_app.py"
-            
-            if not streamlit_app_path.exists():
-                console.print(f"[red]Error:[/red] Streamlit app not found at {streamlit_app_path}")
-                raise typer.Exit(1)
-            
-            # Open browser if requested
-            if not no_browser:
-                import threading
-                def open_browser():
-                    import time
-                    time.sleep(2)
-                    webbrowser.open(f"http://{host}:{port}")
-                threading.Thread(target=open_browser, daemon=True).start()
-            
-            # Run streamlit
-            subprocess.run([
-                sys.executable, "-m", "streamlit", "run",
-                str(streamlit_app_path),
-                "--server.port", str(port),
-                "--server.address", host,
-                "--server.headless", "true",
-                "--browser.gatherUsageStats", "false",
-            ])
-            
-        except ImportError as e:
-            console.print(f"[red]Error:[/red] Streamlit not installed.")
-            console.print("[dim]Run: pip install streamlit plotly[/dim]")
-            raise typer.Exit(1)
-        console.print(f"[dim]{e}[/dim]")
+    """Analyze a Hyperliquid market using recent candles and technical indicators."""
+    with console.status(
+        f"[bold cyan]Fetching {symbol} candles from Hyperliquid ({'testnet' if testnet else 'mainnet'})..."
+    ):
+        analysis = analyze_market(
+            symbol=symbol,
+            timeframe=timeframe,
+            lookback_bars=lookback_bars,
+            testnet=testnet,
+        )
+
+    if output == "json":
+        console.print_json(data=analysis.to_dict())
+        return
+
+    console.print(render_market_analysis(analysis))
+
+
+@market_app.command("list")
+def market_list(
+    scope: str = typer.Option("perps", "--scope", "-s", help="perps, hip3, spot, or all-perps"),
+    dex: Optional[str] = typer.Option(None, "--dex", help="HIP-3 dex name, e.g. xyz"),
+    search: Optional[str] = typer.Option(None, "--search", help="Filter market names."),
+    testnet: bool = typer.Option(False, "--testnet", help="Use Hyperliquid testnet."),
+    output: str = typer.Option("table", "--output", "-o", help="table or json"),
+):
+    """List Hyperliquid markets through the Rust bridge."""
+    with console.status(
+        f"[bold cyan]Loading {scope} markets from Hyperliquid ({'testnet' if testnet else 'mainnet'})..."
+    ):
+        catalog = list_markets(
+            scope=scope,
+            dex=dex,
+            search=search,
+            testnet=testnet,
+        )
+
+    if output == "json":
+        console.print_json(data=catalog.to_dict())
+        return
+
+    console.print(render_market_catalog(catalog))
+
+
+@market_app.command("search")
+def market_search(
+    query: str = typer.Argument(..., help="Market search text."),
+    scope: str = typer.Option("all-perps", "--scope", "-s", help="perps, hip3, spot, or all-perps"),
+    dex: Optional[str] = typer.Option(None, "--dex", help="HIP-3 dex name, e.g. xyz"),
+    testnet: bool = typer.Option(False, "--testnet", help="Use Hyperliquid testnet."),
+    output: str = typer.Option("table", "--output", "-o", help="table or json"),
+):
+    """Search the Hyperliquid market catalog without a project."""
+    with console.status(
+        f"[bold cyan]Searching {scope} markets for '{query}' on {'testnet' if testnet else 'mainnet'}..."
+    ):
+        catalog = list_markets(
+            scope=scope,
+            dex=dex,
+            search=query,
+            testnet=testnet,
+        )
+
+    if output == "json":
+        console.print_json(data=catalog.to_dict())
+        return
+
+    console.print(render_market_catalog(catalog))
+
+
+@market_app.command("scan")
+def market_scan(
+    symbols: Optional[str] = typer.Option(
+        None,
+        "--symbols",
+        help="Comma-separated symbol list. Overrides catalog selection.",
+    ),
+    scope: str = typer.Option("perps", "--scope", "-s", help="perps, hip3, spot, or all-perps"),
+    dex: Optional[str] = typer.Option(None, "--dex", help="HIP-3 dex name, e.g. xyz"),
+    search: Optional[str] = typer.Option(None, "--search", help="Filter before scanning."),
+    timeframe: str = typer.Option("1h", "--timeframe", "-t", help="1m, 5m, 15m, 1h, 4h, 1d"),
+    lookback_bars: int = typer.Option(200, "--lookback-bars", "-n", min=50),
+    max_markets: int = typer.Option(8, "--max-markets", help="How many markets to analyze."),
+    limit: int = typer.Option(8, "--limit", help="How many ranked rows to display."),
+    sort_by: str = typer.Option("score", "--sort", help="score, change, volatility, or rsi"),
+    testnet: bool = typer.Option(False, "--testnet", help="Use Hyperliquid testnet."),
+    output: str = typer.Option("table", "--output", "-o", help="table or json"),
+):
+    """Run a ranked TA scan without creating a project."""
+    symbol_list = None
+    if symbols:
+        symbol_list = [item.strip() for item in symbols.split(",") if item.strip()]
+
+    with console.status(
+        f"[bold cyan]Scanning {scope if symbol_list is None else 'custom'} markets on {'testnet' if testnet else 'mainnet'}..."
+    ):
+        scan = scan_markets(
+            scope=scope,
+            dex=dex,
+            search=search,
+            symbols=symbol_list,
+            timeframe=timeframe,
+            lookback_bars=lookback_bars,
+            max_markets=max_markets,
+            limit=limit,
+            sort_by=sort_by,
+            testnet=testnet,
+        )
+
+    if output == "json":
+        console.print_json(data=scan.to_dict())
+        return
+
+    console.print(render_market_scan(scan))
+
+
+@market_app.command("book")
+def market_book(
+    symbol: str = typer.Argument(..., help="Hyperliquid symbol, e.g. BTC-PERP."),
+    depth: int = typer.Option(12, "--depth", "-d", min=1, max=25, help="Levels to show per side."),
+    poll_ms: int = typer.Option(800, "--poll-ms", help="Max wait between screen refreshes."),
+    testnet: bool = typer.Option(False, "--testnet", help="Use Hyperliquid testnet."),
+):
+    """Show a live Hyperliquid L2 order book in the terminal."""
+    with console.status(
+        f"[bold cyan]Connecting live L2 book for {symbol} on {'testnet' if testnet else 'mainnet'}..."
+    ):
+        stream = stream_l2_book(symbol, testnet=testnet)
+        first_update = None
+        for _ in range(20):
+            first_update = stream.next_update(timeout_ms=750)
+            if first_update is not None:
+                break
+
+    if first_update is None:
+        console.print(f"[red]Timed out waiting for the first order book update for {symbol}.[/red]")
         raise typer.Exit(1)
 
-
-@app.command()
-def backtest(
-    strategy: str = typer.Option(..., "--strategy", "-s", help="Strategy name"),
-    symbol: str = typer.Option("BTC-PERP", "--symbol", help="Trading symbol"),
-    timeframe: str = typer.Option("1h", "--timeframe", "-t", help="Timeframe"),
-    start: str = typer.Option(None, "--start", help="Start date (YYYY-MM-DD)"),
-    end: str = typer.Option(None, "--end", help="End date (YYYY-MM-DD)"),
-    capital: float = typer.Option(100000.0, "--capital", "-c", help="Initial capital"),
-):
-    """Run a backtest on a strategy."""
-    print_banner()
-    project_root = ensure_project()
-    
-    console.print(Panel.fit(
-        f"""[bold]Backtest Configuration[/bold]
-Strategy:  [cyan]{strategy}[/cyan]
-Symbol:    {symbol}
-Timeframe: {timeframe}
-Capital:   ${capital:,.2f}
-""",
-        title="🔬 Backtest",
-    ))
-    
-    # Load and run actual backtest
     try:
-        from neleus import BacktestRunner
-        
-        # Dynamic strategy import
-        strategies_dir = project_root / "strategies"
-        strategy_file = strategies_dir / f"{strategy}_strategy.py"
-        
-        if not strategy_file.exists():
-            strategy_file = strategies_dir / f"{strategy}.py"
-        
-        if not strategy_file.exists():
-            console.print(f"[red]Error:[/red] Strategy '{strategy}' not found.")
-            console.print(f"[dim]Looked in: {strategies_dir}[/dim]")
-            raise typer.Exit(1)
-        
-        # Import strategy dynamically
-        import importlib.util
-        spec = importlib.util.spec_from_file_location(strategy, strategy_file)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        
-        # Find strategy class
-        strategy_class = None
-        for attr_name in dir(module):
-            attr = getattr(module, attr_name)
-            if isinstance(attr, type) and attr_name.endswith("Strategy") and attr_name != "Strategy":
-                strategy_class = attr
-                break
-        
-        if strategy_class is None:
-            console.print(f"[red]Error:[/red] No strategy class found in {strategy_file}")
-            raise typer.Exit(1)
-        
-        console.print(f"[dim]Loaded: {strategy_class.__name__}[/dim]\n")
-        
-        # Run backtest using the BacktestRunner properly
-        from neleus.backtest_runner import BacktestRunner as Runner
-        
-        runner = Runner(project_root)
-        
-        with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}"), console=console) as progress:
-            task = progress.add_task("Running backtest...", total=None)
-            
-            import asyncio
-            # Run backtest with async runner
-            results = asyncio.run(runner.run_backtest(
-                strategy_name=strategy,
-                initial_capital=capital,
+        with Live(
+            render_l2_book(first_update, depth=depth, network="testnet" if testnet else "mainnet"),
+            console=console,
+            refresh_per_second=4,
+        ) as live:
+            while True:
+                update = stream.next_update(timeout_ms=max(poll_ms, 100))
+                if update is None:
+                    continue
+                live.update(
+                    render_l2_book(update, depth=depth, network="testnet" if testnet else "mainnet"),
+                    refresh=True,
+                )
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Stopped live order book.[/yellow]")
+
+
+@app.command("backtest")
+def backtest(
+    strategy: Optional[str] = typer.Option(None, "--strategy", "-s", help="Strategy name."),
+    start: Optional[str] = typer.Option(None, "--start", help="YYYY-MM-DD"),
+    end: Optional[str] = typer.Option(None, "--end", help="YYYY-MM-DD"),
+    capital: Optional[float] = typer.Option(None, "--capital", "-c"),
+):
+    """Run a backtest for a project strategy."""
+    project_root = ensure_project()
+    runner = BacktestRunner(project_root)
+    strategies = discover_strategies(project_root)
+    if not strategies:
+        console.print("[red]No strategies found in strategies/[/red]")
+        raise typer.Exit(1)
+
+    strategy_name = strategy or strategies[0]["name"]
+    with console.status(f"[bold cyan]Running backtest for {strategy_name}..."):
+        results = asyncio.run(
+            runner.run_backtest(
+                strategy_name=strategy_name,
                 start_date=start,
                 end_date=end,
-            ))
-            progress.update(task, description="Complete!")
-        
-        # Display results
-        console.print("\n[green]✓[/green] Backtest complete!\n")
-        
-        # Results is a dict of {strategy_name: BacktestResults}
-        for strat_name, result in results.items():
-            table = Table(title=f"Results: {strat_name}")
-            table.add_column("Metric", style="cyan")
-            table.add_column("Value", justify="right")
-            
-            # BacktestResults has a metrics attribute
-            if hasattr(result, 'metrics'):
-                m = result.metrics
-                table.add_row("Total Return", f"{m.total_return * 100:.2f}%")
-                table.add_row("Max Drawdown", f"{m.max_drawdown * 100:.2f}%")
-                table.add_row("Sharpe Ratio", f"{m.sharpe_ratio:.2f}")
-                table.add_row("Total Trades", str(m.total_trades))
-                table.add_row("Win Rate", f"{m.win_rate * 100:.1f}%")
-                table.add_row("Total Commission", f"${m.total_commission:,.2f}")
-            # PyBacktestResults from Rust
-            elif hasattr(result, 'return_pct'):
-                table.add_row("Total Return", f"{result.return_pct:.2f}%")
-                table.add_row("Max Drawdown", f"{result.max_drawdown_pct:.2f}%")
-                table.add_row("Sharpe Ratio", f"{result.sharpe_ratio:.2f}")
-                table.add_row("Total Trades", str(result.total_trades))
-                table.add_row("Win Rate", f"{result.win_rate():.1f}%")
-            elif isinstance(result, dict):
-                table.add_row("Total Return", f"{result.get('return_pct', 0):.2f}%")
-                table.add_row("Sharpe Ratio", f"{result.get('sharpe_ratio', 0):.2f}")
-            
-            console.print(table)
-        
-    except ImportError as e:
-        console.print(f"[yellow]Warning:[/yellow] Running in demo mode.")
-        console.print(f"[dim]{e}[/dim]\n")
-        
-        # Demo results
-        table = Table(title="Demo Results")
-        table.add_column("Metric", style="cyan")
-        table.add_column("Value", justify="right")
-        table.add_row("Total Return", "+15.3%")
-        table.add_row("Sharpe Ratio", "1.85")
-        table.add_row("Max Drawdown", "-8.2%")
-        table.add_row("Total Trades", "142")
-        table.add_row("Win Rate", "58.4%")
-        console.print(table)
-
-
-@app.command()
-def live(
-    strategy: str = typer.Option(..., "--strategy", "-s", help="Strategy to run"),
-    symbol: str = typer.Option("BTC-PERP", "--symbol", help="Trading symbol"),
-    venue: str = typer.Option("hyperliquid", "--venue", "-v", help="Trading venue"),
-    paper: bool = typer.Option(True, "--paper/--real", help="Paper trading mode"),
-):
-    """Start live trading. Use --paper for paper trading (default)."""
-    print_banner()
-    project_root = ensure_project()
-    
-    if not paper:
-        confirm = typer.confirm(
-            "\n⚠️  LIVE trading with REAL money. Continue?",
-            default=False,
+                initial_capital=capital,
+            )
         )
-        if not confirm:
-            raise typer.Exit(0)
-    
-    mode_str = "[yellow]PAPER[/yellow]" if paper else "[red]LIVE[/red]"
-    console.print(f"\n🚀 Starting {mode_str} trading")
-    console.print(f"   Strategy: [cyan]{strategy}[/cyan]")
-    console.print(f"   Symbol:   {symbol}")
-    console.print(f"   Venue:    {venue}")
-    console.print("\n[dim]Press Ctrl+C to stop[/dim]\n")
+
+    if not results:
+        console.print("[yellow]No backtest results returned.[/yellow]")
+        raise typer.Exit(1)
+
+    for result_name, result in results.items():
+        console.print(render_backtest_result(result_name, result))
 
 
-@app.command()
-def build():
-    """Validate and compile the project."""
-    print_banner()
+@app.command("run")
+def run(
+    mode: str = typer.Option("once", "--mode", help="once or daemon"),
+    strategy: Optional[str] = typer.Option(None, "--strategy", "-s", help="Strategy name."),
+    symbol: Optional[str] = typer.Option(None, "--symbol", help="Override project symbol."),
+    timeframe: Optional[str] = typer.Option(None, "--timeframe", "-t"),
+    lookback_bars: Optional[int] = typer.Option(None, "--lookback-bars", "-n"),
+    interval_seconds: Optional[int] = typer.Option(None, "--interval-seconds", "-i"),
+    testnet: Optional[bool] = typer.Option(None, "--testnet/--mainnet"),
+):
+    """Run a project strategy once or keep it running in daemon mode."""
     project_root = ensure_project()
-    
-    console.print("\n🔨 Building project...\n")
-    
-    checks = [
-        ("Validating neleus.toml", True),
-        ("Checking strategies", True),
-        ("Validating configuration", True),
-    ]
-    
-    for check, passed in checks:
-        status = "[green]✓[/green]" if passed else "[red]✗[/red]"
-        console.print(f"  {status} {check}")
-    
-    console.print("\n[green]Build successful![/green]")
 
+    if mode == "once":
+        with console.status("[bold cyan]Running project once..."):
+            result = run_project_once(
+                project_path=project_root,
+                strategy_name=strategy,
+                symbol=symbol,
+                timeframe=timeframe,
+                lookback_bars=lookback_bars,
+                testnet=testnet,
+            )
+        console.print(render_runtime_result(result, mode="once"))
+        return
 
-# =============================================================================
-# Strategy Sub-commands
-# =============================================================================
+    if mode != "daemon":
+        console.print("[red]Mode must be 'once' or 'daemon'.[/red]")
+        raise typer.Exit(1)
+
+    project_config = load_project_config(project_root / CONFIG_FILE)
+    market_config = project_config.get("market", {})
+    runtime_config = project_config.get("runtime", {})
+    hyperliquid_config = project_config.get("hyperliquid", {})
+    dashboard = DaemonDashboard(
+        strategy=strategy or "auto",
+        symbol=symbol or market_config.get("symbol", "BTC-PERP"),
+        timeframe=timeframe or market_config.get("timeframe", "1h"),
+        poll_interval_seconds=interval_seconds or int(runtime_config.get("poll_interval_seconds", 60)),
+        network="testnet"
+        if (testnet if testnet is not None else hyperliquid_config.get("testnet", False))
+        else "mainnet",
+    )
+
+    async def _log_iteration(result) -> None:
+        if dashboard.strategy == "auto":
+            dashboard.strategy = result.strategy
+        dashboard.update(result)
+        live.update(dashboard.render(), refresh=True)
+
+    try:
+        with Live(dashboard.render(), console=console, refresh_per_second=4) as live:
+            asyncio.run(
+                run_project_daemon(
+                    project_path=project_root,
+                    strategy_name=strategy,
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    lookback_bars=lookback_bars,
+                    poll_interval_seconds=interval_seconds,
+                    testnet=testnet,
+                    on_iteration=_log_iteration,
+                )
+            )
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Stopped daemon runtime.[/yellow]")
+
 
 @strategy_app.command("list")
 def strategy_list():
-    """List all available strategies."""
-    print_banner()
+    """List strategy files in the current project."""
     project_root = ensure_project()
-    strategies_dir = project_root / "strategies"
-    
-    console.print("\n📋 Available Strategies:\n")
-    
-    table = Table()
-    table.add_column("Name", style="cyan")
-    table.add_column("File")
-    
-    if strategies_dir.exists():
-        for py_file in strategies_dir.glob("*.py"):
-            if py_file.name.startswith("_"):
-                continue
-            table.add_row(py_file.stem, str(py_file.relative_to(project_root)))
-    
-    console.print(table)
+    strategies = discover_strategies(project_root)
+    if not strategies:
+        console.print("[yellow]No strategies found.[/yellow]")
+        return
+
+    console.print(render_strategy_list(strategies))
 
 
-@strategy_app.command("add")
-def strategy_add(
-    name: str = typer.Argument(..., help="Strategy name"),
-    template: str = typer.Option("momentum", "--template", "-t", help="Template: momentum, mean_reversion, custom"),
+@strategy_app.command("new")
+def strategy_new(
+    name: str = typer.Argument(..., help="Strategy name."),
 ):
-    """Create a new strategy from template."""
-    print_banner()
+    """Create a new strategy file."""
     project_root = ensure_project()
-    strategies_dir = project_root / "strategies"
-    
     strategy_name = name.lower().replace("-", "_").replace(" ", "_")
-    class_name = "".join(word.title() for word in strategy_name.split("_")) + "Strategy"
-    file_path = strategies_dir / f"{strategy_name}.py"
-    
+    class_name = "".join(part.title() for part in strategy_name.split("_"))
+    file_path = project_root / "strategies" / f"{strategy_name}.py"
     if file_path.exists():
-        console.print(f"[red]Error:[/red] Strategy '{strategy_name}' exists.")
+        console.print(f"[red]Strategy already exists:[/red] {file_path}")
         raise typer.Exit(1)
-    
-    strategy_code = f'''"""
-{class_name} - Auto-generated strategy template.
-"""
 
-from neleus import Strategy
-from neleus.types import Signal
-from typing import Dict, Any, List
-
-
-class {class_name}(Strategy):
-    """
-    {name.replace("_", " ").title()} Strategy
-    """
-    
-    def __init__(self):
-        super().__init__()
-        self.prices: List[float] = []
-    
-    def on_bar(self, bar: Dict[str, Any]) -> Signal:
-        """Process each bar and return a signal."""
-        # Your logic here
-        return Signal.HOLD
-    
-    def get_position_size(self, capital: float, price: float) -> float:
-        return (capital * 0.1) / price
-'''
-    
-    file_path.write_text(strategy_code)
-    console.print(f"\n[green]✓[/green] Created: [cyan]{strategy_name}[/cyan]")
-    console.print(f"  File: {file_path.relative_to(project_root)}")
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    file_path.write_text(
+        STRATEGY_TEMPLATE.format(
+            class_name=class_name,
+            strategy_name=strategy_name,
+        )
+    )
+    console.print(f"[green]Created[/green] {file_path}")
 
 
 @strategy_app.command("show")
-def strategy_show(name: str = typer.Argument(..., help="Strategy name")):
+def strategy_show(
+    name: str = typer.Argument(..., help="Strategy name."),
+):
     """Show strategy source code."""
-    print_banner()
     project_root = ensure_project()
-    strategies_dir = project_root / "strategies"
-    
-    file_path = strategies_dir / f"{name}.py"
+    file_path = project_root / "strategies" / f"{name}.py"
     if not file_path.exists():
-        file_path = strategies_dir / f"{name}_strategy.py"
-    
-    if not file_path.exists():
-        console.print(f"[red]Error:[/red] Strategy '{name}' not found.")
+        console.print(f"[red]Strategy not found:[/red] {name}")
         raise typer.Exit(1)
-    
-    code = file_path.read_text()
-    syntax = Syntax(code, "python", theme="monokai", line_numbers=True)
-    console.print(Panel(syntax, title=f"📄 {file_path.name}"))
+
+    console.print(Syntax(file_path.read_text(), "python", line_numbers=True))
 
 
-@app.command()
-def version():
-    """Show Neleus version."""
-    print_banner()
-    console.print(f"Neleus v{NELEUS_VERSION}")
-
-
-@app.command()
+@app.command("info")
 def info():
-    """Show project information."""
-    print_banner()
+    """Show current project information."""
     project_root = get_project_root()
-    
     if project_root is None:
-        console.print(f"[yellow]Not in a Neleus project[/yellow]")
-        console.print(f"\nNeleus v{NELEUS_VERSION}")
-        console.print("\nRun 'neleus new <name>' to create a project.")
-        return
-    
-    tree = Tree(f"📁 {project_root.name}")
-    for item in sorted(project_root.iterdir()):
-        if item.name.startswith(".") and item.name != ".env.example":
-            continue
-        if item.is_dir():
-            branch = tree.add(f"📁 {item.name}/")
-            for subitem in sorted(item.iterdir())[:5]:
-                if not subitem.name.startswith("."):
-                    branch.add(f"📄 {subitem.name}")
-        else:
-            tree.add(f"📄 {item.name}")
-    
-    console.print(tree)
+        console.print(render_about_panel())
+        raise typer.Exit()
+
+    config = load_project_config(project_root / CONFIG_FILE)
+    console.print(render_project_info(project_root, config, discover_strategies(project_root), CONFIG_FILE))
 
 
-def main():
-    """Entry point for the CLI."""
-    argv = sys.argv[1:]
-    if ("--help" in argv or "-h" in argv) and "--no-banner" not in argv:
-        print_banner()
+@app.command("about")
+def about():
+    """Show Neleus branding, links, and command overview."""
+    console.print(render_about_panel())
+
+
+@app.command("version")
+def version():
+    """Show CLI version."""
+    console.print(render_brand_banner(compact=True))
+    console.print(f"neleus {__version__}")
+
+
+# ---------------------------------------------------------------------------
+# Database adapter commands
+# ---------------------------------------------------------------------------
+
+@db_app.command("status")
+def db_status():
+    """Check the database connection configured in the current project."""
+    project_root = ensure_project()
+    config = load_project_config(project_root / CONFIG_FILE)
+    db_cfg = get_db_config(config)
+
+    if db_cfg.backend == "none":
+        console.print(
+            "[yellow]Database backend is set to 'none'.[/yellow]\n"
+            "Run [bold]neleus db status --help[/bold] or edit [bold]neleus.toml[/bold] to configure one."
+        )
+        raise typer.Exit(0)
+
+    dsn = db_cfg.dsn
+    if not dsn:
+        console.print(
+            "[red]database.dsn is empty.[/red] Set it in neleus.toml or via NELEUS_DB_DSN."
+        )
+        raise typer.Exit(1)
+
+    console.print(
+        f"[cyan]Backend:[/cyan] {db_cfg.backend}\n"
+        f"[cyan]DSN:[/cyan]     {_mask_dsn(dsn)}\n"
+        f"[cyan]Pool:[/cyan]    {db_cfg.pool_size}\n"
+        f"[cyan]Monitor:[/cyan] {'enabled' if db_cfg.trade_monitoring else 'disabled'}\n"
+    )
+
+    with console.status("[bold cyan]Connecting to database..."):
+        try:
+            _probe_db(dsn)
+            console.print("[bold green]Connection OK.[/bold green]")
+        except Exception as exc:
+            console.print(f"[bold red]Connection FAILED:[/bold red] {exc}")
+            raise typer.Exit(1)
+
+
+@db_app.command("init")
+def db_init():
+    """Initialize database schema for the current project.
+
+    Creates hl_orders and hl_fills tables (trade monitoring) and, when the
+    backend is 'timescale', also creates the full TimescaleDB market-data
+    hypertables.
+    """
+    project_root = ensure_project()
+    config = load_project_config(project_root / CONFIG_FILE)
+    db_cfg = get_db_config(config)
+
+    if db_cfg.backend == "none":
+        console.print(
+            "[yellow]Database backend is 'none'. Nothing to initialize.[/yellow]\n"
+            "Edit [bold]database.backend[/bold] in neleus.toml first."
+        )
+        raise typer.Exit(0)
+
+    dsn = db_cfg.dsn
+    if not dsn:
+        console.print("[red]database.dsn is empty.[/red] Set it in neleus.toml or via NELEUS_DB_DSN.")
+        raise typer.Exit(1)
+
+    console.print(f"[cyan]Backend:[/cyan] {db_cfg.backend}   [cyan]DSN:[/cyan] {_mask_dsn(dsn)}")
+
+    with console.status("[bold cyan]Initializing schema..."):
+        try:
+            _init_schema(db_cfg)
+            console.print("[bold green]Schema initialized.[/bold green]")
+        except Exception as exc:
+            console.print(f"[bold red]Schema init FAILED:[/bold red] {exc}")
+            raise typer.Exit(1)
+
+
+# ---------------------------------------------------------------------------
+# DB helpers (imported lazily so they don't block the CLI when DB is unused)
+# ---------------------------------------------------------------------------
+
+def _mask_dsn(dsn: str) -> str:
+    """Redact the password portion of a DSN for display."""
+    import re
+    return re.sub(r"(://[^:]+:)[^@]+(@)", r"\1***\2", dsn)
+
+
+def _probe_db(dsn: str) -> None:
+    """Verify connectivity by constructing a TradeMonitor (schema init included)."""
+    from ..types import TradeMonitor
+    # The Rust constructor is blocking and raises on connection failure.
+    TradeMonitor(connection_string=dsn, testnet=False, pool_size=1)
+
+
+def _init_schema(db_cfg) -> None:
+    """Initialize the project database schema using the configured adapter."""
+    from ..types import TradeMonitor, TimescaleConfig, TimescaleStore
+
+    # Trade-monitoring tables work with plain PostgreSQL (no TimescaleDB needed).
+    TradeMonitor(
+        connection_string=db_cfg.dsn,
+        testnet=False,
+        pool_size=db_cfg.pool_size,
+    )
+
+    if db_cfg.backend == "timescale":
+        cfg = TimescaleConfig(
+            connection_string=db_cfg.dsn,
+            pool_size=db_cfg.pool_size,
+            batch_size=db_cfg.batch_size,
+            flush_interval_ms=db_cfg.flush_interval_ms,
+        )
+        TimescaleStore(config=cfg)
+
+
+# ---------------------------------------------------------------------------
+
+def main() -> None:
     app()
 
 
 if __name__ == "__main__":
     main()
-
-
-__all__ = ["app", "main"]

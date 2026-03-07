@@ -41,6 +41,9 @@ htmlcov/
 
 # Logs
 *.log
+logs/
+test_logs/
+test_reports/
 
 # Databases
 *.sqlite

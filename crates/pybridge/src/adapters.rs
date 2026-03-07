@@ -1,11 +1,14 @@
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
-use std::sync::Arc;
+use std::sync::{mpsc, Arc, Mutex};
+use std::thread;
+use std::time::Duration;
 use super::types::*;
 
 use neleus_adapters_hyperliquid::{
     CandleInterval, HyperliquidCandle, HyperliquidConfig, HyperliquidHistoricalClient,
-    HyperliquidMeta,
+    HyperliquidMeta, HyperliquidSpotMarketInfo, HyperliquidSpotMeta, HyperliquidSpotTokenInfo,
+    HyperliquidWsMarketData, HyperliquidWsMessage, L2BookData, PriceLevel,
 };
 
 #[pyclass(name = "HyperliquidClient")]
@@ -76,15 +79,97 @@ impl PyHyperliquidClient {
         Ok(candles.into_iter().map(PyHyperliquidCandle::from).collect())
     }
 
-    pub fn fetch_meta(&self) -> PyResult<PyHyperliquidMeta> {
+    #[pyo3(signature = (dex=None))]
+    pub fn fetch_meta(&self, dex: Option<String>) -> PyResult<PyHyperliquidMeta> {
         let client = HyperliquidHistoricalClient::new(self.config.clone());
 
         let meta = self
             .runtime
-            .block_on(async { client.fetch_meta().await })
+            .block_on(async { client.fetch_meta_with_dex(dex.as_deref()).await })
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to fetch meta: {}", e)))?;
 
         Ok(PyHyperliquidMeta::from(meta))
+    }
+
+    pub fn fetch_all_perp_metas(&self) -> PyResult<Vec<PyHyperliquidMeta>> {
+        let client = HyperliquidHistoricalClient::new(self.config.clone());
+
+        let metas = self
+            .runtime
+            .block_on(async { client.fetch_all_perp_metas().await })
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to fetch all perp metas: {}", e)))?;
+
+        Ok(metas.into_iter().map(PyHyperliquidMeta::from).collect())
+    }
+
+    pub fn fetch_spot_meta(&self) -> PyResult<PyHyperliquidSpotMeta> {
+        let client = HyperliquidHistoricalClient::new(self.config.clone());
+
+        let meta = self
+            .runtime
+            .block_on(async { client.fetch_spot_meta().await })
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to fetch spot meta: {}", e)))?;
+
+        Ok(PyHyperliquidSpotMeta::from(meta))
+    }
+
+    pub fn stream_l2_book(&self, coin: &str) -> PyResult<PyHyperliquidL2BookStream> {
+        let config = self.config.clone();
+        let stream_coin = coin.to_string();
+        let (tx, rx) = mpsc::channel::<L2BookStreamEvent>();
+        let thread_coin = stream_coin.clone();
+        let spawn_result = thread::Builder::new()
+            .name(format!("neleus-hl-l2-{}", thread_coin))
+            .spawn(move || {
+                let runtime = match tokio::runtime::Runtime::new() {
+                    Ok(runtime) => runtime,
+                    Err(err) => {
+                        let _ = tx.send(L2BookStreamEvent::Error(format!(
+                            "Failed to create runtime for {}: {}",
+                            thread_coin, err
+                        )));
+                        return;
+                    }
+                };
+
+                let mut market_data = HyperliquidWsMarketData::new(config);
+                market_data.subscribe_l2_book(&thread_coin);
+
+                let callback_tx = tx.clone();
+                let callback_coin = thread_coin.clone();
+                let result = runtime.block_on(async move {
+                    market_data
+                        .connect(move |message| {
+                            if let HyperliquidWsMessage::L2Book { data } = message {
+                                let _ = callback_tx
+                                    .send(L2BookStreamEvent::Update(PyHyperliquidL2BookUpdate::from(
+                                        data,
+                                    )));
+                            }
+                        })
+                        .await
+                });
+
+                if let Err(err) = result {
+                    let _ = tx.send(L2BookStreamEvent::Error(format!(
+                        "L2 book stream failed for {}: {}",
+                        callback_coin, err
+                    )));
+                }
+            });
+
+        spawn_result.map_err(|err| {
+            PyRuntimeError::new_err(format!(
+                "Failed to spawn L2 book stream thread for {}: {}",
+                stream_coin, err
+            ))
+        })?;
+
+        Ok(PyHyperliquidL2BookStream {
+            coin: stream_coin,
+            is_testnet: self.config.testnet,
+            receiver: Mutex::new(rx),
+        })
     }
 
     pub fn rest_url(&self) -> String {
@@ -160,11 +245,14 @@ impl PyHyperliquidCandle {
 pub struct PyHyperliquidMeta {
     #[pyo3(get)]
     pub symbols: Vec<PyHyperliquidAsset>,
+    #[pyo3(get)]
+    pub collateral_token: Option<String>,
 }
 
 impl From<HyperliquidMeta> for PyHyperliquidMeta {
     fn from(m: HyperliquidMeta) -> Self {
         Self {
+            collateral_token: m.collateral_token,
             symbols: m
                 .universe
                 .into_iter()
@@ -182,6 +270,250 @@ impl PyHyperliquidMeta {
 
     pub fn get_asset(&self, name: &str) -> Option<PyHyperliquidAsset> {
         self.symbols.iter().find(|s| s.name == name).cloned()
+    }
+}
+
+#[pyclass(name = "HyperliquidSpotMeta")]
+#[derive(Debug, Clone)]
+pub struct PyHyperliquidSpotMeta {
+    #[pyo3(get)]
+    pub tokens: Vec<PyHyperliquidSpotToken>,
+    #[pyo3(get)]
+    pub markets: Vec<PyHyperliquidSpotMarket>,
+}
+
+impl From<HyperliquidSpotMeta> for PyHyperliquidSpotMeta {
+    fn from(m: HyperliquidSpotMeta) -> Self {
+        Self {
+            tokens: m.tokens.into_iter().map(PyHyperliquidSpotToken::from).collect(),
+            markets: m
+                .universe
+                .into_iter()
+                .map(PyHyperliquidSpotMarket::from)
+                .collect(),
+        }
+    }
+}
+
+#[pymethods]
+impl PyHyperliquidSpotMeta {
+    pub fn market_names(&self) -> Vec<String> {
+        self.markets.iter().map(|m| m.name.clone()).collect()
+    }
+
+    pub fn token_names(&self) -> Vec<String> {
+        self.tokens.iter().map(|t| t.name.clone()).collect()
+    }
+}
+
+#[pyclass(name = "HyperliquidSpotToken")]
+#[derive(Debug, Clone)]
+pub struct PyHyperliquidSpotToken {
+    #[pyo3(get)]
+    pub name: String,
+    #[pyo3(get)]
+    pub sz_decimals: u32,
+    #[pyo3(get)]
+    pub wei_decimals: Option<u32>,
+    #[pyo3(get)]
+    pub index: u32,
+    #[pyo3(get)]
+    pub token_id: Option<String>,
+    #[pyo3(get)]
+    pub is_canonical: Option<bool>,
+    #[pyo3(get)]
+    pub full_name: Option<String>,
+}
+
+impl From<HyperliquidSpotTokenInfo> for PyHyperliquidSpotToken {
+    fn from(t: HyperliquidSpotTokenInfo) -> Self {
+        Self {
+            name: t.name,
+            sz_decimals: t.sz_decimals,
+            wei_decimals: t.wei_decimals,
+            index: t.index,
+            token_id: t.token_id,
+            is_canonical: t.is_canonical,
+            full_name: t.full_name,
+        }
+    }
+}
+
+#[pyclass(name = "HyperliquidSpotMarket")]
+#[derive(Debug, Clone)]
+pub struct PyHyperliquidSpotMarket {
+    #[pyo3(get)]
+    pub name: String,
+    #[pyo3(get)]
+    pub index: u32,
+    #[pyo3(get)]
+    pub tokens: Vec<u32>,
+    #[pyo3(get)]
+    pub is_canonical: Option<bool>,
+}
+
+impl From<HyperliquidSpotMarketInfo> for PyHyperliquidSpotMarket {
+    fn from(m: HyperliquidSpotMarketInfo) -> Self {
+        Self {
+            name: m.name,
+            index: m.index,
+            tokens: m.tokens,
+            is_canonical: m.is_canonical,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+enum L2BookStreamEvent {
+    Update(PyHyperliquidL2BookUpdate),
+    Error(String),
+}
+
+#[pyclass(name = "HyperliquidL2Level")]
+#[derive(Debug, Clone)]
+pub struct PyHyperliquidL2Level {
+    #[pyo3(get)]
+    pub price: f64,
+    #[pyo3(get)]
+    pub size: f64,
+    #[pyo3(get)]
+    pub num_orders: u32,
+}
+
+impl From<PriceLevel> for PyHyperliquidL2Level {
+    fn from(level: PriceLevel) -> Self {
+        Self {
+            price: level.px.parse::<f64>().unwrap_or(0.0),
+            size: level.sz.parse::<f64>().unwrap_or(0.0),
+            num_orders: level.n,
+        }
+    }
+}
+
+#[pyclass(name = "HyperliquidL2BookUpdate")]
+#[derive(Debug, Clone)]
+pub struct PyHyperliquidL2BookUpdate {
+    #[pyo3(get)]
+    pub coin: String,
+    #[pyo3(get)]
+    pub timestamp_ms: u64,
+    #[pyo3(get)]
+    pub bids: Vec<PyHyperliquidL2Level>,
+    #[pyo3(get)]
+    pub asks: Vec<PyHyperliquidL2Level>,
+    #[pyo3(get)]
+    pub best_bid: f64,
+    #[pyo3(get)]
+    pub best_ask: f64,
+    #[pyo3(get)]
+    pub mid_price: f64,
+    #[pyo3(get)]
+    pub spread: f64,
+    #[pyo3(get)]
+    pub spread_bps: f64,
+    #[pyo3(get)]
+    pub total_bid_size: f64,
+    #[pyo3(get)]
+    pub total_ask_size: f64,
+    #[pyo3(get)]
+    pub imbalance: f64,
+}
+
+impl From<L2BookData> for PyHyperliquidL2BookUpdate {
+    fn from(data: L2BookData) -> Self {
+        let bids: Vec<PyHyperliquidL2Level> = data
+            .levels
+            .first()
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .map(PyHyperliquidL2Level::from)
+            .collect();
+        let asks: Vec<PyHyperliquidL2Level> = data
+            .levels
+            .get(1)
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .map(PyHyperliquidL2Level::from)
+            .collect();
+
+        let best_bid = bids.first().map(|level| level.price).unwrap_or(0.0);
+        let best_ask = asks.first().map(|level| level.price).unwrap_or(0.0);
+        let mid_price = if best_bid > 0.0 && best_ask > 0.0 {
+            (best_bid + best_ask) / 2.0
+        } else {
+            0.0
+        };
+        let spread = if best_bid > 0.0 && best_ask > 0.0 {
+            best_ask - best_bid
+        } else {
+            0.0
+        };
+        let spread_bps = if mid_price > 0.0 {
+            (spread / mid_price) * 10_000.0
+        } else {
+            0.0
+        };
+        let total_bid_size: f64 = bids.iter().map(|level| level.size).sum();
+        let total_ask_size: f64 = asks.iter().map(|level| level.size).sum();
+        let imbalance = if total_bid_size + total_ask_size > 0.0 {
+            (total_bid_size - total_ask_size) / (total_bid_size + total_ask_size)
+        } else {
+            0.0
+        };
+
+        Self {
+            coin: data.coin,
+            timestamp_ms: data.time,
+            bids,
+            asks,
+            best_bid,
+            best_ask,
+            mid_price,
+            spread,
+            spread_bps,
+            total_bid_size,
+            total_ask_size,
+            imbalance,
+        }
+    }
+}
+
+#[pymethods]
+impl PyHyperliquidL2BookUpdate {
+    pub fn __repr__(&self) -> String {
+        format!(
+            "HyperliquidL2BookUpdate(coin='{}', mid={:.6}, spread_bps={:.3})",
+            self.coin, self.mid_price, self.spread_bps
+        )
+    }
+}
+
+#[pyclass(name = "HyperliquidL2BookStream", unsendable)]
+pub struct PyHyperliquidL2BookStream {
+    #[pyo3(get)]
+    pub coin: String,
+    #[pyo3(get)]
+    pub is_testnet: bool,
+    receiver: Mutex<mpsc::Receiver<L2BookStreamEvent>>,
+}
+
+#[pymethods]
+impl PyHyperliquidL2BookStream {
+    #[pyo3(signature = (timeout_ms=1000))]
+    pub fn next_update(&self, timeout_ms: u64) -> PyResult<Option<PyHyperliquidL2BookUpdate>> {
+        let receiver = self
+            .receiver
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("L2 book stream lock poisoned"))?;
+
+        match receiver.recv_timeout(Duration::from_millis(timeout_ms)) {
+            Ok(L2BookStreamEvent::Update(update)) => Ok(Some(update)),
+            Ok(L2BookStreamEvent::Error(err)) => Err(PyRuntimeError::new_err(err)),
+            Err(mpsc::RecvTimeoutError::Timeout) => Ok(None),
+            Err(mpsc::RecvTimeoutError::Disconnected) => Ok(None),
+        }
     }
 }
 

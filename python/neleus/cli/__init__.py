@@ -1,4 +1,3 @@
-from .main import main, app
-from .demo import demo_app
+from .main import app, main
 
-__all__ = ["main", "app", "demo_app"]
+__all__ = ["app", "main"]

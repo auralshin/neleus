@@ -6,6 +6,7 @@ mod portfolio;
 mod adapters;
 mod engine;
 mod agent_bindings;
+mod trading;
 
 pub use types::*;
 pub use execution::*;
@@ -13,6 +14,7 @@ pub use portfolio::*;
 pub use adapters::*;
 pub use engine::*;
 pub use agent_bindings::*;
+pub use trading::*;
 
 #[pyfunction]
 pub fn version() -> &'static str {
@@ -90,11 +92,29 @@ fn neleus_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyHyperliquidCandle>()?;
     m.add_class::<PyHyperliquidMeta>()?;
     m.add_class::<PyHyperliquidAsset>()?;
+    m.add_class::<PyHyperliquidSpotMeta>()?;
+    m.add_class::<PyHyperliquidSpotToken>()?;
+    m.add_class::<PyHyperliquidSpotMarket>()?;
+    m.add_class::<PyHyperliquidL2Level>()?;
+    m.add_class::<PyHyperliquidL2BookUpdate>()?;
+    m.add_class::<PyHyperliquidL2BookStream>()?;
 
     m.add_class::<PyPostgresEventStoreConfig>()?;
     m.add_class::<PyPostgresEventStore>()?;
     m.add_class::<PyTimescaleConfig>()?;
     m.add_class::<PyTimescaleStore>()?;
+
+    // Live trading
+    m.add_class::<PyOrderResult>()?;
+    m.add_class::<PyOpenOrder>()?;
+    m.add_class::<PyFillRecord>()?;
+    m.add_class::<PyHyperliquidTrader>()?;
+
+    // DB-backed trade monitoring
+    m.add_class::<PyDbOrderRecord>()?;
+    m.add_class::<PyDbFillRecord>()?;
+    m.add_class::<PyPnlSummary>()?;
+    m.add_class::<PyTradeMonitor>()?;
 
     m.add_class::<PyEngineConfig>()?;
     m.add_class::<PyEngineState>()?;
