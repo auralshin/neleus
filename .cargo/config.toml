@@ -1,0 +1,16 @@
+# Cross-compilation configuration for aarch64 Linux
+# Fixes ring v0.17.x build failure on Linux aarch64:
+#   "ARM assembler must define __ARM_ARCH"
+# The cc crate reads CFLAGS_{target} env vars to add extra flags when
+# compiling C/assembly files. Setting this at the cargo config level
+# ensures the flag is available inside Docker containers (e.g. manylinux).
+
+[target.aarch64-unknown-linux-gnu]
+linker = "aarch64-linux-gnu-gcc"
+
+[env]
+# Required for ring v0.17.x cross-compilation to aarch64-unknown-linux-gnu.
+# Ensures __ARM_ARCH is defined when the cross-compiler preprocesses
+# ring's ARM assembly files (chacha-armv8-linux64.S, etc.).
+# force = true so it takes effect even if the env var is already set.
+CFLAGS_aarch64_unknown_linux_gnu = { value = "-march=armv8-a", force = true }
