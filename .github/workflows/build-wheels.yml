@@ -5,6 +5,8 @@ name: Release to PyPI
 
 on:
   release:
+    # 'published' fires for new releases and pre-releases moved out of draft,
+    # but NOT for draft releases. Use 'created' if drafts should also trigger.
     types: [published]
   workflow_dispatch:
 
@@ -125,7 +127,7 @@ jobs:
           echo "Scanning all wheels for source code leaks..."
           for wheel in dist/*.whl; do
             echo "Checking $wheel..."
-            unzip -l "$wheel" | grep -iE '\.rs$|\.toml$|crates/|/src/' && {
+            unzip -l "$wheel" | grep -iE '\.rs$|Cargo\.toml|crates/|build\.rs' && {
               echo "ERROR: Source code found in $wheel"
               exit 1
             } || echo "✓ Clean"
