@@ -1,5 +1,5 @@
 [package]
-name = "neleus-pybridge"
+name = "neleus"
 version = "0.1.4"
 edition.workspace = true
 license.workspace = true
