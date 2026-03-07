@@ -99,7 +99,7 @@ jobs:
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
-          target: x64
+          target: x86_64
           args: --release --strip --out dist --interpreter 3.10 3.11 3.12 3.13
           working-directory: python
 
