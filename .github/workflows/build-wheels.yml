@@ -34,7 +34,7 @@ jobs:
         with:
           target: ${{ matrix.target }}
           manylinux: auto
-          args: --release --strip --out dist --interpreter 3.10 3.11 3.12 3.13
+          args: --release --strip --out dist --interpreter 3.10 3.11 3.12 3.13 --manifest-path ../crates/pybridge/Cargo.toml
           working-directory: python
 
       - name: Upload wheels
@@ -52,9 +52,9 @@ jobs:
       matrix:
         include:
           - target: x86_64
-            runner: macos-13
+            runner: macos-12
           - target: aarch64
-            runner: macos-14
+            runner: macos-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -75,7 +75,7 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
-          args: --release --strip --out dist --find-interpreter
+          args: --release --strip --out dist --find-interpreter --manifest-path ../crates/pybridge/Cargo.toml
           working-directory: python
 
       - name: Upload wheels
@@ -108,7 +108,7 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           target: x86_64
-          args: --release --strip --out dist --find-interpreter
+          args: --release --strip --out dist --find-interpreter --manifest-path ../crates/pybridge/Cargo.toml
           working-directory: python
 
       - name: Upload wheels
