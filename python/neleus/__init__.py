@@ -6,7 +6,7 @@ Hyperliquid-first CLI and Python toolkit for market analysis, backtesting,
 strategy development, and long-running strategy runtimes.
 """
 
-__version__ = "0.1.2"
+__version__ = "0.1.3"
 
 from .backtest_runner import BacktestRunner
 from .config import (

@@ -1,6 +1,6 @@
 [project]
 name = "neleus"
-version = "0.1.2"
+version = "0.1.3"
 description = "Hyperliquid-first trading CLI and Python toolkit"
 readme = "README.md"
 requires-python = ">=3.10"
