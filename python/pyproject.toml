@@ -1,6 +1,6 @@
 [project]
 name = "neleus"
-version = "0.1.0"
+version = "0.1.2"
 description = "Hyperliquid-first trading CLI and Python toolkit"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -44,7 +44,7 @@ neleus = "neleus.cli.main:main"
 
 [project.urls]
 Homepage = "https://neleus.trade"
-Documentation = "https://neleus.trade/docs"
+Documentation = "https://auralshin.github.io/neleus/"
 Repository = "https://github.com/auralshin/neleus"
 
 [build-system]

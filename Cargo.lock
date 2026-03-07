@@ -2267,7 +2267,7 @@ dependencies = [
 
 [[package]]
 name = "neleus-pybridge"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "agent-comm",
  "agent-core",
