@@ -9,6 +9,14 @@ on:
     # but NOT for draft releases. Use 'created' if drafts should also trigger.
     types: [published]
   workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'crates/**'
+      - 'python/**'
+      - 'Cargo.*'
+      - '.cargo/**'
+      - '.github/workflows/build-wheels.yml'
 
 permissions:
   contents: read
@@ -16,26 +24,15 @@ permissions:
 jobs:
   # ── Linux wheels (manylinux via Docker) ────────────────────────────
   build-linux:
-    name: Build Linux (${{ matrix.target }})
+    name: Build Linux (x86_64)
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        target: [x86_64, aarch64]
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up QEMU
-        if: matrix.target == 'aarch64'
-        uses: docker/setup-qemu-action@v3
-
       - name: Build wheels
         uses: PyO3/maturin-action@v1
-        env:
-          CFLAGS_aarch64_unknown_linux_gnu: "-march=armv8-a"
-          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: "aarch64-linux-gnu-gcc"
         with:
-          target: ${{ matrix.target }}
+          target: x86_64
           manylinux: auto
           args: --release --strip --out dist --interpreter 3.10 3.11 3.12 3.13 --manifest-path ../crates/pybridge/Cargo.toml
           working-directory: python
@@ -43,7 +40,7 @@ jobs:
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
-          name: wheels-linux-${{ matrix.target }}
+          name: wheels-linux-x86_64
           path: python/dist/*.whl
 
   # ── macOS wheels ───────────────────────────────────────────────────
