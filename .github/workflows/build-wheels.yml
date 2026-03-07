@@ -1,180 +1,190 @@
-name: Build Binary Wheels
-# Automated cross-platform wheel building
-# Produces binary-only distributions protecting Rust IP
+name: Release to PyPI
+# Multi-platform, multi-version wheel builds
+# Uses PyO3/maturin-action for manylinux-compliant Linux wheels
+# Publishes via pypa/gh-action-pypi-publish using PYPI_TOKEN secret
 
 on:
   release:
-    types: [created]
+    types: [published]
   workflow_dispatch:
-    inputs:
-      version:
-        description: 'Version to build (optional)'
-        required: false
+
+permissions:
+  contents: read
 
 jobs:
-  build-wheels:
-    name: Build on ${{ matrix.os }} - Python ${{ matrix.python-version }}
-    runs-on: ${{ matrix.os }}
+  # ── Linux wheels (manylinux via Docker) ────────────────────────────
+  build-linux:
+    name: Build Linux (${{ matrix.target }})
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        python-version: ['3.10', '3.11', '3.12']
-    
+        target: [x86_64, aarch64]
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: ${{ matrix.python-version }}
-      
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-      
-      - name: Install maturin
-        run: pip install maturin
-      
-      - name: Build wheel (Unix)
-        if: runner.os != 'Windows'
-        run: |
-          cd python
-          maturin build --release --strip --out dist
-      
-      - name: Build wheel (Windows)
-        if: runner.os == 'Windows'
-        run: |
-          cd python
-          maturin build --release --strip --out dist
-        shell: cmd
-      
-      - name: Verify no source code in wheel (Unix)
-        if: runner.os != 'Windows'
-        run: |
-          cd python
-          for wheel in dist/*.whl; do
-            echo "Checking $wheel for source code..."
-            unzip -l "$wheel" | grep -E '\.rs$|Cargo\.toml' && {
-              echo "ERROR: Rust source found in wheel!"
-              exit 1
-            } || {
-              echo "✓ Clean - no source code detected"
-            }
-          done
-      
-      - name: Verify no source code in wheel (Windows)
-        if: runner.os == 'Windows'
-        run: |
-          cd python
-          $wheels = Get-ChildItem dist/*.whl
-          foreach ($wheel in $wheels) {
-            Write-Host "Checking $wheel for source code..."
-            $content = python -m zipfile -l $wheel
-            if ($content -match '\.rs$|Cargo\.toml') {
-              Write-Host "ERROR: Rust source found in wheel!"
-              exit 1
-            } else {
-              Write-Host "✓ Clean - no source code detected"
-            }
-          }
-        shell: powershell
-      
-      - name: List wheel contents
-        run: |
-          cd python/dist
-          ls -lh
-        shell: bash
-      
-      - name: Upload wheels as artifacts
-        uses: actions/upload-artifact@v3
-        with:
-          name: wheels-${{ matrix.os }}-py${{ matrix.python-version }}
-          path: python/dist/*.whl
-          retention-days: 30
-      
-      - name: Upload to release (if triggered by release)
-        if: github.event_name == 'release'
-        uses: softprops/action-gh-release@v1
-        with:
-          files: python/dist/*.whl
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  
-  security-check:
-    name: Final Security Verification
-    needs: build-wheels
-    runs-on: ubuntu-latest
-    
-    steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v3
-        with:
-          path: all-wheels
-      
-      - name: Comprehensive source code check
-        run: |
-          echo "Performing final security scan on all wheels..."
-          find all-wheels -name "*.whl" -type f | while read wheel; do
-            echo "Scanning: $wheel"
-            unzip -l "$wheel" | grep -iE '\.rs$|\.toml$|crates/|/src/' && {
-              echo "⚠️  WARNING: Potential source code found in $wheel"
-              exit 1
-            } || {
-              echo "✓ $wheel is clean"
-            }
-          done
-          echo "✅ All wheels passed security verification"
-      
-      - name: Generate wheel inventory
-        run: |
-          echo "# Build Artifacts" > inventory.md
-          echo "" >> inventory.md
-          echo "## Wheels Built" >> inventory.md
-          find all-wheels -name "*.whl" -type f -exec basename {} \; | sort >> inventory.md
-      
-      - name: Upload inventory
-        uses: actions/upload-artifact@v3
-        with:
-          name: build-inventory
-          path: inventory.md
 
-  publish-pypi:
-    name: Publish to PyPI (Manual)
-    needs: [build-wheels, security-check]
+      - name: Set up QEMU
+        if: matrix.target == 'aarch64'
+        uses: docker/setup-qemu-action@v3
+
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          manylinux: auto
+          args: --release --strip --out dist --interpreter 3.10 3.11 3.12 3.13
+          working-directory: python
+
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-linux-${{ matrix.target }}
+          path: python/dist/*.whl
+
+  # ── macOS wheels ───────────────────────────────────────────────────
+  build-macos:
+    name: Build macOS (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64
+            runner: macos-13
+          - target: aarch64
+            runner: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: |
+            3.10
+            3.11
+            3.12
+            3.13
+
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          args: --release --strip --out dist --interpreter 3.10 3.11 3.12 3.13
+          working-directory: python
+
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-macos-${{ matrix.target }}
+          path: python/dist/*.whl
+
+  # ── Windows wheels ─────────────────────────────────────────────────
+  build-windows:
+    name: Build Windows (x64)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: |
+            3.10
+            3.11
+            3.12
+            3.13
+
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: x64
+          args: --release --strip --out dist --interpreter 3.10 3.11 3.12 3.13
+          working-directory: python
+
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-windows-x64
+          path: python/dist/*.whl
+
+  # ── Security verification ──────────────────────────────────────────
+  verify:
+    name: Verify wheels
+    needs: [build-linux, build-macos, build-windows]
     runs-on: ubuntu-latest
-    if: github.event_name == 'release' && github.event.action == 'created'
-    # Remove 'if' condition to enable automatic publishing
-    # WARNING: Only enable when PyPI credentials are configured
-    # environment: pypi  # Uncomment to use GitHub environment secrets
-    
     steps:
       - name: Download all wheels
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
-          path: all-wheels
-      
-      - name: Collect wheels
+          path: dist
+          pattern: wheels-*
+          merge-multiple: true
+
+      - name: Verify no source code in wheels
         run: |
-          mkdir -p dist
-          find all-wheels -name "*.whl" -exec cp {} dist/ \;
-          ls -lh dist/
-      
-      - name: Install twine
-        run: pip install twine
-      
-      # OPTION 1: Manual approval required
-      - name: Publish to PyPI (requires approval)
-        if: false  # Change to 'true' to enable, requires PyPI token in secrets
-        env:
-          TWINE_USERNAME: __token__
-          TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
+          echo "Scanning all wheels for source code leaks..."
+          for wheel in dist/*.whl; do
+            echo "Checking $wheel..."
+            unzip -l "$wheel" | grep -iE '\.rs$|\.toml$|crates/|/src/' && {
+              echo "ERROR: Source code found in $wheel"
+              exit 1
+            } || echo "✓ Clean"
+          done
+          echo "✅ All wheels passed security verification"
+
+      - name: List all wheels
         run: |
-          twine upload dist/*.whl
-      
-      # OPTION 2: Instructions for manual publishing
-      - name: Manual publishing instructions
-        run: |
-          echo "::notice::Wheels built successfully. To publish manually:"
-          echo "::notice::1. Download the wheels from the Actions artifacts"
-          echo "::notice::2. Run: twine upload *.whl"
-          echo "::notice::3. Or use: ./python/publish_wheels.sh"
+          echo "## Built wheels"
+          ls -lh dist/*.whl
+          echo ""
+          echo "Total: $(ls dist/*.whl | wc -l) wheels"
+
+  # ── Attach wheels to GitHub Release ────────────────────────────────
+  release-upload:
+    name: Upload to GitHub Release
+    needs: [verify]
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all wheels
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: wheels-*
+          merge-multiple: true
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.whl
+
+  # ── Publish to PyPI ──────────────────────────────────────────────────
+  # Uses PYPI_TOKEN secret for authentication.
+  # To migrate to Trusted Publishing (OIDC) later, remove the password
+  # field and configure a Trusted Publisher on PyPI:
+  #   https://docs.pypi.org/trusted-publishers/adding-a-publisher/
+  publish:
+    name: Publish to PyPI
+    needs: [verify]
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    environment:
+      name: pypi
+      url: https://pypi.org/p/neleus
+    steps:
+      - name: Download all wheels
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: wheels-*
+          merge-multiple: true
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_TOKEN }}
+          packages-dir: dist/
