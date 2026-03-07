@@ -58,3 +58,6 @@ test_reports/
 .idea/
 *.swp
 *.swo
+
+# MkDocs build output
+/site/
