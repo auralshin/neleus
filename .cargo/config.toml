@@ -4,9 +4,12 @@
 # The cc crate reads CFLAGS_{target} env vars to add extra flags when
 # compiling C/assembly files. Setting this at the cargo config level
 # ensures the flag is available inside Docker containers (e.g. manylinux).
-
-[target.aarch64-unknown-linux-gnu]
-linker = "aarch64-linux-gnu-gcc"
+#
+# NOTE: The linker for aarch64-unknown-linux-gnu is intentionally NOT set
+# here. It is configured via CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER
+# in CI only (see .github/workflows/build-wheels.yml). This avoids breaking
+# developers who build natively on aarch64 Linux, where the default system
+# linker (gcc/cc) should be used instead of the cross-compiler name.
 
 [env]
 # Required for ring v0.17.x cross-compilation to aarch64-unknown-linux-gnu.
