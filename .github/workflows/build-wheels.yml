@@ -183,11 +183,15 @@ jobs:
           files: dist/*.whl
 
   # ── Publish to PyPI ──────────────────────────────────────────────────
+  # Uses Trusted Publishing (OIDC) — no token needed.
+  # GitHub is configured as a Trusted Publisher on PyPI for this repo.
   publish:
     name: Publish to PyPI
     needs: [verify]
     if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
     steps:
       - name: Download all wheels
         uses: actions/download-artifact@v4
@@ -199,5 +203,4 @@ jobs:
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
-          password: ${{ secrets.PYPI_TOKEN }}
           packages-dir: dist/
