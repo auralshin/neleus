@@ -195,11 +195,6 @@ jobs:
     needs: [verify]
     if: github.event_name == 'release'
     runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-    environment:
-      name: pypi
-      url: https://pypi.org/p/neleus
     steps:
       - name: Download all wheels
         uses: actions/download-artifact@v4
