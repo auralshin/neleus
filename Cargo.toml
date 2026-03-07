@@ -37,8 +37,8 @@ futures = "0.3"
 async-trait = "0.1"
 
 # HTTP/WebSocket
-reqwest = { version = "0.12", features = ["json"] }
-tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+tokio-tungstenite = { version = "0.24", default-features = false, features = ["connect", "rustls-tls-native-roots"] }
 axum = "0.7"
 hyper = "1.3"
 
