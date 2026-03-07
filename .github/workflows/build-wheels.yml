@@ -31,10 +31,13 @@ jobs:
 
       - name: Build wheels
         uses: PyO3/maturin-action@v1
+        env:
+          CFLAGS_aarch64_unknown_linux_gnu: "-march=armv8-a"
+          CARGO_BUILD_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: "aarch64-linux-gnu-gcc"
         with:
           target: ${{ matrix.target }}
           manylinux: auto
-          args: --release --strip --out dist --interpreter 3.10 3.11 3.12 3.13 --manifest-path ../crates/pybridge/Cargo.toml
+          args: --release --strip --out dist --interpreter 3.10 3.11 3.12 --manifest-path ../crates/pybridge/Cargo.toml
           working-directory: python
 
       - name: Upload wheels
@@ -73,6 +76,8 @@ jobs:
 
       - name: Build wheels
         uses: PyO3/maturin-action@v1
+        env:
+          PYO3_USE_ABI3_FORWARD_COMPATIBILITY: "1"
         with:
           target: ${{ matrix.target }}
           args: --release --strip --out dist --find-interpreter --manifest-path ../crates/pybridge/Cargo.toml
@@ -106,6 +111,8 @@ jobs:
 
       - name: Build wheels
         uses: PyO3/maturin-action@v1
+        env:
+          PYO3_USE_ABI3_FORWARD_COMPATIBILITY: "1"
         with:
           target: x86_64
           args: --release --strip --out dist --find-interpreter --manifest-path ../crates/pybridge/Cargo.toml
