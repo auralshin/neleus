@@ -1,8 +1,8 @@
 [project]
 name = "neleus"
-version = "0.1.7"
-description = "Hyperliquid-first trading CLI and Python toolkit"
-readme = {file = "README.md", content-type = "text/markdown"}
+version = "0.1.8"
+description = "Hyperliquid-first trading CLI and Python toolkit for terminal-first trading workflows"
+readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [
