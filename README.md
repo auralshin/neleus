@@ -17,7 +17,7 @@
 <p align="center">
   <a href="https://neleus.trade">Website</a>
   ·
-  <a href="./docs/index.md">Docs</a>
+  <a href="https://auralshin.github.io/neleus/">Docs</a>
   ·
   <a href="https://github.com/auralshin/neleus">GitHub</a>
 </p>
@@ -92,20 +92,20 @@ neleus info
 
 ## Documentation
 
-The full usage guides live in [`docs/index.md`](./docs/index.md) and can be
-served as a Zensical site.
+The full usage guides live in [`docs/index.md`](./docs/index.md) and are
+deployed to [GitHub Pages](https://auralshin.github.io/neleus/).
 
 Run the docs locally:
 
 ```bash
 pip install -r docs/requirements.txt
-zensical serve
+mkdocs serve
 ```
 
 Build the static site:
 
 ```bash
-zensical build
+mkdocs build
 ```
 
 The docs cover:
@@ -134,4 +134,5 @@ Not implemented yet:
 
 - Website: [https://neleus.trade](https://neleus.trade)
 - GitHub: [https://github.com/auralshin/neleus](https://github.com/auralshin/neleus)
+- Docs: [https://auralshin.github.io/neleus/](https://auralshin.github.io/neleus/)
 - Docs source: [./docs/index.md](./docs/index.md)

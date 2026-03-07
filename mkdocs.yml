@@ -1,6 +1,6 @@
 site_name: Neleus
 site_description: Hyperliquid-first CLI and Python toolkit powered by a Rust core
-site_url: https://neleus.trade/docs/
+site_url: https://auralshin.github.io/neleus/
 repo_url: https://github.com/auralshin/neleus
 repo_name: auralshin/neleus
 docs_dir: docs
