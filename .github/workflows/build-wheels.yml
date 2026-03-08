@@ -388,76 +388,10 @@ jobs:
         with:
           files: dist/*
 
-  publish-testpypi:
-    name: Publish to TestPyPI
-    if: github.event_name == 'release'
-    needs: [metadata, verify-artifacts]
-    runs-on: ubuntu-latest
-    environment:
-      name: testpypi
-      url: https://test.pypi.org/project/${{ needs.metadata.outputs.package_name }}/
-    permissions:
-      id-token: write
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: dist
-          pattern: dist-*
-          merge-multiple: true
-
-      - name: Publish distributions to TestPyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          packages-dir: dist/
-          repository-url: https://test.pypi.org/legacy/
-          attestations: false
-
-  verify-testpypi:
-    name: Verify TestPyPI release
-    if: github.event_name == 'release'
-    needs: [metadata, publish-testpypi]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Retry install from TestPyPI
-        env:
-          PACKAGE_NAME: ${{ needs.metadata.outputs.package_name }}
-          PACKAGE_VERSION: ${{ needs.metadata.outputs.package_version }}
-        run: |
-          python -m pip install --upgrade pip
-          for attempt in $(seq 1 20); do
-            if python -m pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ "${PACKAGE_NAME}==${PACKAGE_VERSION}"; then
-              exit 0
-            fi
-            echo "TestPyPI package not ready yet (attempt ${attempt}/20)"
-            sleep 15
-          done
-          exit 1
-
-      - name: Smoke import and CLI
-        run: |
-          python -c "import neleus; print(neleus.__version__)"
-          neleus about > /tmp/neleus-about.txt
-
-      - name: Verify published metadata on TestPyPI
-        run: |
-          python .github/scripts/packaging_checks.py index-metadata \
-            --base-url https://test.pypi.org \
-            --package-name "${{ needs.metadata.outputs.package_name }}" \
-            --package-version "${{ needs.metadata.outputs.package_version }}" \
-            --expect-docs-url "${{ env.DOCS_URL }}" \
-            --expect-repo-url "${{ env.REPO_URL }}" \
-            --expect-marker "${{ env.DESCRIPTION_MARKER }}"
-
   publish-pypi:
     name: Publish to PyPI
     if: github.event_name == 'release'
-    needs: [metadata, verify-testpypi]
+    needs: [metadata, verify-artifacts]
     runs-on: ubuntu-latest
     environment:
       name: pypi
