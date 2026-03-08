@@ -6,12 +6,14 @@ This page focuses on workflows that work before you create a project.
 
 ```bash
 neleus about
-neleus market search BTC
+neleus market search GAS --scope all-perps
 neleus market list --scope perps
-neleus market analyze HYPE-PERP
+neleus market analyze GAS --scope hip3 --dex flx
 neleus market scan --scope perps
-neleus market book BTC-PERP
+neleus market book flx:GAS-PERP
 ```
+
+If you only know the plain asset name for a HIP-3 market, use `--scope hip3 --dex <dex>`. Neleus resolves the market and routes the Hyperliquid request correctly.
 
 ## Mainnet By Default
 

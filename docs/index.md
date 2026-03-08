@@ -42,9 +42,9 @@
 | --- | --- | --- |
 | Search markets | `neleus market search BTC` | Find matching spot, default perp, or HIP-3 markets |
 | List market catalogs | `neleus market list --scope hip3 --dex xyz` | View market groups with counts and metadata |
-| Analyze a market | `neleus market analyze BTC-PERP` | Get RSI, trend, levels, volatility, and a directional read |
+| Analyze a market | `neleus market analyze GAS --scope hip3 --dex flx` | Get RSI, trend, levels, volatility, and a directional read without typing the exact routed market id |
 | Scan setups | `neleus market scan --scope perps` | Rank a bounded market set by conviction-style TA score |
-| Stream live depth | `neleus market book BTC-PERP` | Watch a live Hyperliquid L2 order book in the terminal |
+| Stream live depth | `neleus market book flx:GAS-PERP` | Watch a live Hyperliquid L2 order book in the terminal, even when Hyperliquid needs an internal routed symbol |
 | Scaffold a project | `neleus new my_strategy_project` | Generate a Python strategy project wired to the Rust core |
 
 ## Product Scope

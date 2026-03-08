@@ -31,17 +31,17 @@ If the Rust extension is missing, Neleus will fail early on import. Build the py
 
 ## Documentation Site
 
-This repository ships a Zensical docs site under `docs/`.
+This repository ships an MkDocs Material site under `docs/`.
 
 Run it locally:
 
 ```bash
 pip install -r docs/requirements.txt
-zensical serve
+mkdocs serve
 ```
 
 Build static output:
 
 ```bash
-zensical build
+mkdocs build
 ```

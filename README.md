@@ -55,10 +55,10 @@ No project is required for the market-facing commands:
 
 ```bash
 neleus about
-neleus market search BTC
+neleus market search TSLA --scope hip3
+neleus market analyze GAS --scope hip3 --dex flx
 neleus market scan --scope perps
-neleus market book BTC-PERP
-neleus market analyze HYPE-PERP
+neleus market book flx:GAS-PERP
 ```
 
 When you want to write strategy code:
@@ -78,9 +78,9 @@ neleus run --mode daemon --strategy momentum
 neleus about
 neleus market search <query>
 neleus market list --scope perps|hip3|all-perps|spot
-neleus market analyze <symbol>
+neleus market analyze <symbol> [--scope ...] [--dex ...]
 neleus market scan --scope perps|hip3|all-perps|spot
-neleus market book <symbol>
+neleus market book <symbol> [--scope ...] [--dex ...]
 neleus new <name>
 neleus init
 neleus backtest
@@ -112,7 +112,9 @@ mkdocs build
 The docs cover:
 - installation and local setup
 - no-project CLI workflows
+- simple market search across perps, HIP-3, and spot
 - market search, list, analysis, scan, and live order book usage
+- HIP-3 routing details for commands like `neleus market analyze GAS --scope hip3 --dex flx`
 - project scaffolding and strategy commands
 - runtime and backtesting
 - configuration, database adapters, and Hyperliquid usage notes

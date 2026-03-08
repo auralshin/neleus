@@ -31,11 +31,11 @@ No-project market workflows:
 
 ```bash
 neleus about
-neleus market search BTC
+neleus market search GAS --scope all-perps
 neleus market list --scope hip3 --dex xyz
-neleus market analyze BTC-PERP
+neleus market analyze GAS --scope hip3 --dex flx
 neleus market scan --scope perps
-neleus market book BTC-PERP
+neleus market book flx:GAS-PERP
 ```
 
 Project workflow:

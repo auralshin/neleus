@@ -12,9 +12,9 @@ The CLI is split into two layers:
 | `neleus about` | Show branding, links, and a short command guide |
 | `neleus market search <query>` | Find markets by name across supported scopes |
 | `neleus market list` | Show market catalogs for perps, HIP-3, all-perps, or spot |
-| `neleus market analyze <symbol>` | Run single-market technical analysis |
+| `neleus market analyze <symbol>` | Run single-market technical analysis, with optional `--scope` and `--dex` when you only know the plain symbol |
 | `neleus market scan` | Rank a bounded set of markets by scan score |
-| `neleus market book <symbol>` | Stream a live L2 order book in the terminal |
+| `neleus market book <symbol>` | Stream a live L2 order book in the terminal, including HIP-3 markets that need routed symbols |
 
 ## Project Commands
 

@@ -9,6 +9,7 @@ Use search when you know part of a market name but not the exact symbol.
 ```bash
 neleus market search BTC
 neleus market search TSLA --scope hip3
+neleus market search GAS --scope all-perps
 neleus market search PURR --scope spot
 ```
 
@@ -34,9 +35,13 @@ neleus market list --scope spot
 
 ```bash
 neleus market analyze BTC-PERP
+neleus market analyze GAS --scope hip3 --dex flx
+neleus market analyze TSLA --scope hip3 --dex xyz
 neleus market analyze ETH-PERP --timeframe 15m --lookback-bars 300
 neleus market analyze BTC-PERP --output json
 ```
+
+For HIP-3 markets, prefer the plain asset name plus `--scope hip3 --dex <dex>` when you do not know the exact routed market id. Neleus resolves the market for you and uses the correct Hyperliquid request path internally.
 
 The analysis view includes:
 
@@ -75,6 +80,8 @@ The scanner is intentionally bounded. It is designed for fast terminal triage, n
 
 ```bash
 neleus market book BTC-PERP
+neleus market book GAS --scope hip3 --dex flx
+neleus market book flx:GAS-PERP
 neleus market book HYPE-PERP --depth 15
 ```
 
@@ -85,6 +92,8 @@ The live view is backed by the Rust Hyperliquid WebSocket path and shows:
 - spread and spread in basis points
 - total displayed depth
 - order book imbalance
+
+For some HIP-3 markets, Hyperliquid expects a different internal market identifier for books than the display symbol. Neleus handles that automatically and tells you which routed symbol it used in the terminal footer when needed.
 
 Press `Ctrl+C` to stop streaming.
 
