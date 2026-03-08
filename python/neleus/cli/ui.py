@@ -251,8 +251,10 @@ def render_about_panel() -> Group:
     command_table.add_column("What It Does")
     command_table.add_row("neleus market search BTC", "Find matching perp, HIP-3, or spot markets")
     command_table.add_row("neleus market analyze BTC-PERP", "Single-market TA and level read")
+    command_table.add_row("neleus market analyze GAS --scope hip3 --dex flx", "Resolve a HIP-3 market by query and analyze it")
     command_table.add_row("neleus market scan --scope perps", "Rank markets by conviction-style TA score")
     command_table.add_row("neleus market book BTC-PERP", "Live L2 order book in the terminal")
+    command_table.add_row("neleus market book GAS --scope hip3 --dex flx", "Open a live book without typing the full market id")
     command_table.add_row("neleus new my_project", "Scaffold a strategy project when you need code")
 
     notes = Text()
@@ -470,10 +472,17 @@ def render_market_scan(scan: Any) -> Group:
     )
 
 
-def render_l2_book(update: Any, depth: int = 12, network: str = "mainnet") -> Group:
+def render_l2_book(
+    update: Any,
+    depth: int = 12,
+    network: str = "mainnet",
+    display_symbol: Optional[str] = None,
+    subscribed_symbol: Optional[str] = None,
+) -> Group:
+    market_label = display_symbol or update.coin
     cards = Columns(
         [
-            _metric_card("Market", update.coin, "cyan", network.upper()),
+            _metric_card("Market", market_label, "cyan", network.upper()),
             _metric_card("Mid", _format_price(update.mid_price), "green"),
             _metric_card("Spread", f"{update.spread_bps:.2f} bps", "magenta", _format_price(update.spread)),
             _metric_card("Imbalance", f"{update.imbalance:+.2f}", _signed_style(update.imbalance), _format_epoch_ms(update.timestamp_ms)),
@@ -509,6 +518,8 @@ def render_l2_book(update: Any, depth: int = 12, network: str = "mainnet") -> Gr
     ]
 
     footer = Text("Live L2 order book. Press Ctrl+C to stop.", style="dim")
+    if subscribed_symbol and subscribed_symbol != market_label:
+        footer.append(f"\nSubscribed as {subscribed_symbol} to match Hyperliquid data routing.", style="yellow")
 
     return Group(
         cards,

@@ -7,7 +7,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -45,7 +45,24 @@ TIMEFRAME_TO_MINUTES = {
 
 
 def normalize_market_symbol(symbol: str) -> str:
-    return symbol[:-5] if symbol.endswith("-PERP") else symbol
+    cleaned = symbol.strip()
+    return cleaned[:-5] if cleaned.upper().endswith("-PERP") else cleaned
+
+
+def _symbol_aliases(name: str) -> List[str]:
+    normalized = normalize_market_symbol(name)
+    aliases = {normalized, normalized.upper(), normalized.lower()}
+    if ":" in normalized:
+        _, suffix = normalized.split(":", 1)
+        aliases.update({suffix, suffix.upper(), suffix.lower()})
+    return [alias for alias in aliases if alias]
+
+
+def _split_market_symbol(symbol: str) -> Tuple[Optional[str], str]:
+    normalized = normalize_market_symbol(symbol)
+    if ":" not in normalized:
+        return None, normalized
+    return tuple(normalized.split(":", 1))  # type: ignore[return-value]
 
 
 def _timeframe_to_millis(timeframe: str) -> int:
@@ -71,18 +88,47 @@ def fetch_market_candles(
     timeframe: str = "1h",
     lookback_bars: int = 200,
     testnet: bool = False,
+    dex: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     client = HyperliquidClient(testnet=testnet)
     end_time = datetime.now(timezone.utc)
     lookback = timedelta(milliseconds=_timeframe_to_millis(timeframe) * max(lookback_bars, 2))
     start_time = end_time - lookback
+    normalized = normalize_market_symbol(symbol)
+    inferred_dex, base_symbol = _split_market_symbol(normalized)
+    resolved_dex = dex or inferred_dex
+    candidates: List[Tuple[str, Optional[str]]] = []
 
-    candles = client.fetch_candles(
-        normalize_market_symbol(symbol),
-        timeframe,
-        int(start_time.timestamp() * 1000),
-        int(end_time.timestamp() * 1000),
-    )
+    if resolved_dex:
+        if ":" in normalized:
+            candidates.append((normalized, None))
+        candidates.append((base_symbol, resolved_dex))
+        if base_symbol != normalized:
+            candidates.append((base_symbol, None))
+    else:
+        candidates.append((normalized, None))
+        if base_symbol != normalized:
+            candidates.append((base_symbol, None))
+
+    seen: set[Tuple[str, Optional[str]]] = set()
+    deduped_candidates: List[Tuple[str, Optional[str]]] = []
+    for candidate in candidates:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        deduped_candidates.append(candidate)
+
+    candles = []
+    for request_symbol, request_dex in deduped_candidates:
+        candles = client.fetch_candles(
+            request_symbol,
+            timeframe,
+            int(start_time.timestamp() * 1000),
+            int(end_time.timestamp() * 1000),
+            request_dex,
+        )
+        if candles:
+            break
 
     return [
         {
@@ -112,6 +158,8 @@ class MarketEntry:
     token_indices: List[int] = field(default_factory=list)
     is_canonical: Optional[bool] = None
     full_name: Optional[str] = None
+    request_symbol: Optional[str] = None
+    request_dex: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -127,6 +175,8 @@ class MarketEntry:
             "token_indices": self.token_indices,
             "is_canonical": self.is_canonical,
             "full_name": self.full_name,
+            "request_symbol": self.request_symbol,
+            "request_dex": self.request_dex,
         }
 
 
@@ -156,20 +206,130 @@ def _market_dex(name: str) -> Optional[str]:
     return name.split(":", 1)[0]
 
 
-def _matches_search(entry: MarketEntry, search: Optional[str]) -> bool:
+def _search_rank(entry: MarketEntry, search: Optional[str]) -> Optional[int]:
     if not search:
-        return True
-    needle = search.lower()
-    haystack = [
-        entry.name,
-        entry.scope,
-        entry.market_type,
-        entry.dex or "",
-        entry.base_token or "",
-        entry.quote_token or "",
-        entry.full_name or "",
-    ]
-    return any(needle in value.lower() for value in haystack if value)
+        return 0
+
+    needle = normalize_market_symbol(search).lower()
+    normalized_name = normalize_market_symbol(entry.name).lower()
+    suffix = entry.name.split(":", 1)[1].lower() if ":" in entry.name else normalized_name
+    aliases = {alias.lower() for alias in _symbol_aliases(entry.name)}
+
+    if needle in aliases:
+        return 0
+    if suffix.startswith(needle) or normalized_name.startswith(needle):
+        return 1
+    if needle in suffix or needle in normalized_name or needle in entry.name.lower():
+        return 2
+    if entry.base_token and needle in entry.base_token.lower():
+        return 3
+    if entry.quote_token and needle in entry.quote_token.lower():
+        return 3
+    if entry.full_name and needle in entry.full_name.lower():
+        return 4
+    if entry.dex and needle in entry.dex.lower():
+        return 5
+    if needle in entry.scope.lower() or needle in entry.market_type.lower():
+        return 6
+    return None
+
+
+def _book_request_candidates(symbol: str) -> List[str]:
+    normalized = normalize_market_symbol(symbol)
+    _, base_symbol = _split_market_symbol(normalized)
+    candidates = [normalized]
+    if base_symbol != normalized:
+        candidates.append(base_symbol)
+    return list(dict.fromkeys(candidate for candidate in candidates if candidate))
+
+
+def _has_book_liquidity(update: Any) -> bool:
+    return bool(
+        update is not None
+        and (getattr(update, "bids", None) or getattr(update, "asks", None))
+        and (getattr(update, "best_bid", 0.0) > 0.0 or getattr(update, "best_ask", 0.0) > 0.0)
+    )
+
+
+def resolve_market_entry(
+    symbol: str,
+    scope: str = "all-perps",
+    dex: Optional[str] = None,
+    testnet: bool = False,
+) -> MarketEntry:
+    query = normalize_market_symbol(symbol)
+    catalog = list_markets(scope=scope, dex=dex, search=None, testnet=testnet)
+
+    if not catalog.entries:
+        raise ValueError(f"No markets available for scope={scope!r}")
+
+    exact_matches: List[MarketEntry] = []
+    partial_matches: List[MarketEntry] = []
+    query_lower = query.lower()
+
+    for entry in catalog.entries:
+        aliases = _symbol_aliases(entry.name)
+        if query in aliases or query.upper() in aliases or query_lower in aliases:
+            exact_matches.append(entry)
+            continue
+
+        haystack = " ".join(
+            [
+                entry.name,
+                normalize_market_symbol(entry.name),
+                entry.dex or "",
+                entry.base_token or "",
+                entry.quote_token or "",
+                entry.full_name or "",
+            ]
+        ).lower()
+        if query_lower in haystack:
+            partial_matches.append(entry)
+
+    if len(exact_matches) == 1:
+        return exact_matches[0]
+
+    if len(exact_matches) > 1:
+        ranked = sorted(exact_matches, key=lambda entry: (entry.dex or "", entry.name))
+        suggestions = ", ".join(entry.name for entry in ranked[:6])
+        raise ValueError(f"Ambiguous market {symbol!r}. Try one of: {suggestions}")
+
+    if len(partial_matches) == 1:
+        return partial_matches[0]
+
+    if partial_matches:
+        ranked = sorted(partial_matches, key=lambda entry: (entry.dex or "", entry.name))
+        suggestions = ", ".join(entry.name for entry in ranked[:6])
+        raise ValueError(f"Multiple markets match {symbol!r}. Try one of: {suggestions}")
+
+    raise ValueError(f"No Hyperliquid market matched {symbol!r} in scope={scope!r}")
+
+
+def resolve_market_symbol(
+    symbol: str,
+    scope: str = "all-perps",
+    dex: Optional[str] = None,
+    testnet: bool = False,
+) -> str:
+    return resolve_market_entry(symbol, scope=scope, dex=dex, testnet=testnet).name
+
+
+def _spot_token_names(client: HyperliquidClient) -> Dict[str, str]:
+    spot_meta = client.fetch_spot_meta()
+    return {str(token.index): token.name for token in spot_meta.tokens}
+
+
+def _resolve_collateral_token(
+    raw_value: Optional[str], token_names: Optional[Dict[str, str]]
+) -> Optional[str]:
+    if raw_value is None:
+        return None
+
+    value = str(raw_value)
+    if not token_names:
+        return value
+
+    return token_names.get(value, value)
 
 
 def list_markets(
@@ -183,6 +343,10 @@ def list_markets(
     entries: List[MarketEntry] = []
     dex_counts: Dict[str, int] = {}
     total_tokens = 0
+    collateral_token_names: Optional[Dict[str, str]] = None
+
+    if normalized_scope in {"perps", "all-perps", "hip3"}:
+        collateral_token_names = _spot_token_names(client)
 
     if normalized_scope == "perps":
         meta = client.fetch_meta()
@@ -192,9 +356,12 @@ def list_markets(
                 scope="perps",
                 market_type="perp",
                 dex="default",
-                collateral_token=getattr(meta, "collateral_token", None),
+                collateral_token=_resolve_collateral_token(
+                    getattr(meta, "collateral_token", None), collateral_token_names
+                ),
                 max_leverage=asset.max_leverage,
                 sz_decimals=asset.sz_decimals,
+                request_symbol=asset.name,
             )
             for asset in meta.symbols
         ]
@@ -202,7 +369,9 @@ def list_markets(
     elif normalized_scope == "all-perps":
         metas = client.fetch_all_perp_metas()
         for meta in metas:
-            collateral_token = getattr(meta, "collateral_token", None)
+            collateral_token = _resolve_collateral_token(
+                getattr(meta, "collateral_token", None), collateral_token_names
+            )
             for asset in meta.symbols:
                 market_dex = _market_dex(asset.name) or "default"
                 entries.append(
@@ -214,13 +383,17 @@ def list_markets(
                         collateral_token=collateral_token,
                         max_leverage=asset.max_leverage,
                         sz_decimals=asset.sz_decimals,
+                        request_symbol=asset.name.split(":", 1)[1] if market_dex != "default" and ":" in asset.name else asset.name,
+                        request_dex=market_dex if market_dex != "default" else None,
                     )
                 )
                 dex_counts[market_dex] = dex_counts.get(market_dex, 0) + 1
     elif normalized_scope == "hip3":
         if dex:
             meta = client.fetch_meta(dex)
-            collateral_token = getattr(meta, "collateral_token", None)
+            collateral_token = _resolve_collateral_token(
+                getattr(meta, "collateral_token", None), collateral_token_names
+            )
             entries = [
                 MarketEntry(
                     name=asset.name,
@@ -230,6 +403,8 @@ def list_markets(
                     collateral_token=collateral_token,
                     max_leverage=asset.max_leverage,
                     sz_decimals=asset.sz_decimals,
+                    request_symbol=asset.name.split(":", 1)[1] if ":" in asset.name else asset.name,
+                    request_dex=dex,
                 )
                 for asset in meta.symbols
             ]
@@ -237,7 +412,9 @@ def list_markets(
         else:
             metas = client.fetch_all_perp_metas()
             for meta in metas:
-                collateral_token = getattr(meta, "collateral_token", None)
+                collateral_token = _resolve_collateral_token(
+                    getattr(meta, "collateral_token", None), collateral_token_names
+                )
                 for asset in meta.symbols:
                     market_dex = _market_dex(asset.name)
                     if market_dex is None:
@@ -251,6 +428,8 @@ def list_markets(
                             collateral_token=collateral_token,
                             max_leverage=asset.max_leverage,
                             sz_decimals=asset.sz_decimals,
+                            request_symbol=asset.name.split(":", 1)[1] if ":" in asset.name else asset.name,
+                            request_dex=market_dex,
                         )
                     )
                     dex_counts[market_dex] = dex_counts.get(market_dex, 0) + 1
@@ -279,14 +458,21 @@ def list_markets(
                     quote_token=quote_token,
                     token_indices=list(market.tokens),
                     is_canonical=market.is_canonical,
+                    request_symbol=market.name,
                 )
             )
         dex_counts = {"spot": len(entries)}
     else:
         raise ValueError("scope must be one of: perps, hip3, spot, all-perps")
 
-    filtered = [entry for entry in entries if _matches_search(entry, search)]
-    filtered.sort(key=lambda entry: ((entry.dex or ""), entry.name))
+    ranked_entries = []
+    for entry in entries:
+        rank = _search_rank(entry, search)
+        if rank is None:
+            continue
+        ranked_entries.append((rank, entry))
+    ranked_entries.sort(key=lambda item: (item[0], item[1].dex or "", item[1].name))
+    filtered = [entry for _, entry in ranked_entries]
 
     filtered_counts: Dict[str, int] = {}
     for entry in filtered:
@@ -459,12 +645,15 @@ def analyze_market(
     timeframe: str = "1h",
     lookback_bars: int = 200,
     testnet: bool = False,
+    dex: Optional[str] = None,
+    display_symbol: Optional[str] = None,
 ) -> MarketAnalysis:
     candles = fetch_market_candles(
         symbol=symbol,
         timeframe=timeframe,
         lookback_bars=lookback_bars,
         testnet=testnet,
+        dex=dex,
     )
 
     if len(candles) < SMA_PERIOD:
@@ -529,7 +718,7 @@ def analyze_market(
         bias = "neutral"
 
     return MarketAnalysis(
-        symbol=symbol,
+        symbol=display_symbol or symbol,
         timeframe=timeframe,
         last_price=last_price,
         price_change_pct=round(price_change_pct, 4),
@@ -570,16 +759,27 @@ def scan_markets(
         raise ValueError("limit must be greater than 0")
 
     if symbols:
-        selected_entries = [
-            MarketEntry(
-                name=normalize_market_symbol(symbol.strip()),
-                scope="custom",
-                market_type="custom",
-                dex=None,
+        selected_entries = []
+        for symbol in symbols:
+            if not symbol.strip():
+                continue
+            resolved = resolve_market_entry(
+                symbol.strip(),
+                scope=scope,
+                dex=dex,
+                testnet=testnet,
             )
-            for symbol in symbols
-            if symbol.strip()
-        ][:max_markets]
+            selected_entries.append(
+                MarketEntry(
+                    name=resolved.name,
+                    scope="custom",
+                    market_type="custom",
+                    dex=resolved.dex,
+                    request_symbol=resolved.request_symbol,
+                    request_dex=resolved.request_dex,
+                )
+            )
+        selected_entries = selected_entries[:max_markets]
         scan_scope = "custom"
     else:
         catalog = list_markets(scope=scope, dex=dex, search=search, testnet=testnet)
@@ -601,6 +801,8 @@ def scan_markets(
                 timeframe=timeframe,
                 lookback_bars=lookback_bars,
                 testnet=testnet,
+                dex=entry.request_dex or entry.dex,
+                display_symbol=entry.name,
             ): entry
             for entry in selected_entries
         }
@@ -654,9 +856,50 @@ def scan_markets(
     )
 
 
-def stream_l2_book(symbol: str, testnet: bool = False):
+def open_l2_book_stream(
+    symbol: str,
+    testnet: bool = False,
+    timeout_ms: int = 4_000,
+) -> Tuple[Any, Optional[Any], str]:
     client = HyperliquidClient(testnet=testnet)
-    return client.stream_l2_book(normalize_market_symbol(symbol))
+    last_stream = None
+    last_update = None
+    snapshot_coin = normalize_market_symbol(symbol)
+    last_coin = normalize_market_symbol(symbol)
+
+    for request_symbol in _book_request_candidates(symbol):
+        snapshot = client.fetch_l2_book(request_symbol)
+        if _has_book_liquidity(snapshot):
+            snapshot_coin = request_symbol
+            last_update = snapshot
+
+        stream = client.stream_l2_book(request_symbol)
+        last_stream = stream
+        last_coin = request_symbol
+        update = None
+        attempts = max(1, timeout_ms // 750)
+        for _ in range(attempts):
+            update = stream.next_update(timeout_ms=750)
+            if update is not None:
+                break
+
+        if update is None:
+            if _has_book_liquidity(last_update) and request_symbol == snapshot_coin:
+                return stream, last_update, request_symbol
+            continue
+
+        if _has_book_liquidity(update):
+            return stream, update, request_symbol
+
+        if last_update is None and update is not None:
+            last_update = update
+
+    return last_stream, last_update, snapshot_coin if _has_book_liquidity(last_update) else last_coin
+
+
+def stream_l2_book(symbol: str, testnet: bool = False):
+    stream, _, _ = open_l2_book_stream(symbol, testnet=testnet)
+    return stream
 
 
 __all__ = [
@@ -669,6 +912,9 @@ __all__ = [
     "fetch_market_candles",
     "list_markets",
     "normalize_market_symbol",
+    "open_l2_book_stream",
+    "resolve_market_entry",
+    "resolve_market_symbol",
     "scan_markets",
     "stream_l2_book",
 ]

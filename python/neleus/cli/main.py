@@ -27,8 +27,9 @@ from ..config import discover_strategies, get_db_config, load_project_config
 from ..market import (
     analyze_market,
     list_markets,
+    open_l2_book_stream,
+    resolve_market_entry,
     scan_markets,
-    stream_l2_book,
 )
 from ..runtime import run_project_daemon, run_project_once
 from .ui import (
@@ -360,18 +361,24 @@ def market_analyze(
     symbol: str = typer.Argument(..., help="Hyperliquid symbol, e.g. BTC-PERP."),
     timeframe: str = typer.Option("1h", "--timeframe", "-t", help="1m, 5m, 15m, 1h, 4h, 1d"),
     lookback_bars: int = typer.Option(200, "--lookback-bars", "-n", min=20),
+    scope: str = typer.Option("all-perps", "--scope", "-s", help="perps, hip3, spot, or all-perps"),
+    dex: Optional[str] = typer.Option(None, "--dex", help="HIP-3 dex name, e.g. flx or xyz"),
     testnet: bool = typer.Option(False, "--testnet", help="Use Hyperliquid testnet."),
     output: str = typer.Option("table", "--output", "-o", help="table or json"),
 ):
     """Analyze a Hyperliquid market using recent candles and technical indicators."""
+    resolved_market = resolve_market_entry(symbol, scope=scope, dex=dex, testnet=testnet)
+
     with console.status(
-        f"[bold cyan]Fetching {symbol} candles from Hyperliquid ({'testnet' if testnet else 'mainnet'})..."
+        f"[bold cyan]Fetching {resolved_market.name} candles from Hyperliquid ({'testnet' if testnet else 'mainnet'})..."
     ):
         analysis = analyze_market(
-            symbol=symbol,
+            symbol=resolved_market.name,
             timeframe=timeframe,
             lookback_bars=lookback_bars,
             testnet=testnet,
+            dex=resolved_market.request_dex or resolved_market.dex,
+            display_symbol=resolved_market.name,
         )
 
     if output == "json":
@@ -484,26 +491,37 @@ def market_book(
     symbol: str = typer.Argument(..., help="Hyperliquid symbol, e.g. BTC-PERP."),
     depth: int = typer.Option(12, "--depth", "-d", min=1, max=25, help="Levels to show per side."),
     poll_ms: int = typer.Option(800, "--poll-ms", help="Max wait between screen refreshes."),
+    scope: str = typer.Option("all-perps", "--scope", "-s", help="perps, hip3, spot, or all-perps"),
+    dex: Optional[str] = typer.Option(None, "--dex", help="HIP-3 dex name, e.g. flx or xyz"),
     testnet: bool = typer.Option(False, "--testnet", help="Use Hyperliquid testnet."),
 ):
     """Show a live Hyperliquid L2 order book in the terminal."""
-    with console.status(
-        f"[bold cyan]Connecting live L2 book for {symbol} on {'testnet' if testnet else 'mainnet'}..."
-    ):
-        stream = stream_l2_book(symbol, testnet=testnet)
-        first_update = None
-        for _ in range(20):
-            first_update = stream.next_update(timeout_ms=750)
-            if first_update is not None:
-                break
+    resolved_market = resolve_market_entry(symbol, scope=scope, dex=dex, testnet=testnet)
 
-    if first_update is None:
-        console.print(f"[red]Timed out waiting for the first order book update for {symbol}.[/red]")
+    with console.status(
+        f"[bold cyan]Connecting live L2 book for {resolved_market.name} on {'testnet' if testnet else 'mainnet'}..."
+    ):
+        stream, first_update, subscribed_coin = open_l2_book_stream(
+            resolved_market.name,
+            testnet=testnet,
+            timeout_ms=max(poll_ms * 3, 3000),
+        )
+
+    if stream is None or first_update is None:
+        console.print(
+            f"[red]Timed out waiting for the first order book update for {resolved_market.name}.[/red]"
+        )
         raise typer.Exit(1)
 
     try:
         with Live(
-            render_l2_book(first_update, depth=depth, network="testnet" if testnet else "mainnet"),
+            render_l2_book(
+                first_update,
+                depth=depth,
+                network="testnet" if testnet else "mainnet",
+                display_symbol=resolved_market.name,
+                subscribed_symbol=subscribed_coin,
+            ),
             console=console,
             refresh_per_second=4,
         ) as live:
@@ -512,7 +530,13 @@ def market_book(
                 if update is None:
                     continue
                 live.update(
-                    render_l2_book(update, depth=depth, network="testnet" if testnet else "mainnet"),
+                    render_l2_book(
+                        update,
+                        depth=depth,
+                        network="testnet" if testnet else "mainnet",
+                        display_symbol=resolved_market.name,
+                        subscribed_symbol=subscribed_coin,
+                    ),
                     refresh=True,
                 )
     except KeyboardInterrupt:

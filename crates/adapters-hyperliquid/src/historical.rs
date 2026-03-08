@@ -1,7 +1,8 @@
 use crate::config::{HyperliquidConfig, HyperliquidError};
-use crate::types::TradeData;
+use crate::types::{L2BookData, TradeData};
 use reqwest::Client as HttpClient;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
+use serde_json::Value;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CandleInterval {
@@ -94,13 +95,44 @@ struct CandleSnapshotParams {
     start_time: u64,
     #[serde(rename = "endTime")]
     end_time: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dex: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct L2BookRequest {
+    #[serde(rename = "type")]
+    req_type: String,
+    coin: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HyperliquidMeta {
-    #[serde(rename = "collateralToken", default)]
+    #[serde(
+        rename = "collateralToken",
+        default,
+        deserialize_with = "deserialize_optional_string_or_number"
+    )]
     pub collateral_token: Option<String>,
     pub universe: Vec<HyperliquidAssetInfo>,
+}
+
+fn deserialize_optional_string_or_number<'de, D>(
+    deserializer: D,
+) -> Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Option::<Value>::deserialize(deserializer)?;
+    match value {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(s)) => Ok(Some(s)),
+        Some(Value::Number(n)) => Ok(Some(n.to_string())),
+        Some(Value::Bool(b)) => Ok(Some(b.to_string())),
+        Some(other) => Err(serde::de::Error::custom(format!(
+            "unsupported collateralToken value: {other}"
+        ))),
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -110,6 +142,26 @@ pub struct HyperliquidAssetInfo {
     pub sz_decimals: u32,
     #[serde(rename = "maxLeverage")]
     pub max_leverage: Option<u32>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::HyperliquidMeta;
+
+    #[test]
+    fn meta_accepts_numeric_collateral_token() {
+        let meta: HyperliquidMeta = serde_json::from_str(
+            r#"{
+                "universe": [{"szDecimals": 4, "name": "xyz:XYZ100", "maxLeverage": 30}],
+                "collateralToken": 0
+            }"#,
+        )
+        .expect("meta should deserialize");
+
+        assert_eq!(meta.collateral_token.as_deref(), Some("0"));
+        assert_eq!(meta.universe.len(), 1);
+        assert_eq!(meta.universe[0].name, "xyz:XYZ100");
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -163,6 +215,18 @@ impl HyperliquidHistoricalClient {
         start_time_ms: u64,
         end_time_ms: u64,
     ) -> Result<Vec<HyperliquidCandle>, HyperliquidError> {
+        self.fetch_candles_with_dex(coin, None, interval, start_time_ms, end_time_ms)
+            .await
+    }
+
+    pub async fn fetch_candles_with_dex(
+        &self,
+        coin: &str,
+        dex: Option<&str>,
+        interval: CandleInterval,
+        start_time_ms: u64,
+        end_time_ms: u64,
+    ) -> Result<Vec<HyperliquidCandle>, HyperliquidError> {
         let url = format!("{}/info", self.config.rest_url);
 
         let request = CandleSnapshotRequest {
@@ -172,6 +236,7 @@ impl HyperliquidHistoricalClient {
                 interval: interval.as_str().to_string(),
                 start_time: start_time_ms,
                 end_time: end_time_ms,
+                dex: dex.map(str::to_string),
             },
         };
 
@@ -208,6 +273,26 @@ impl HyperliquidHistoricalClient {
         end_time_ms: u64,
         max_candles_per_request: usize,
     ) -> Result<Vec<HyperliquidCandle>, HyperliquidError> {
+        self.fetch_candles_range_with_dex(
+            coin,
+            None,
+            interval,
+            start_time_ms,
+            end_time_ms,
+            max_candles_per_request,
+        )
+        .await
+    }
+
+    pub async fn fetch_candles_range_with_dex(
+        &self,
+        coin: &str,
+        dex: Option<&str>,
+        interval: CandleInterval,
+        start_time_ms: u64,
+        end_time_ms: u64,
+        max_candles_per_request: usize,
+    ) -> Result<Vec<HyperliquidCandle>, HyperliquidError> {
         let mut all_candles = Vec::new();
         let mut current_start = start_time_ms;
         let interval_ms = interval.duration_ms();
@@ -217,7 +302,7 @@ impl HyperliquidHistoricalClient {
             let chunk_end = (current_start + max_range).min(end_time_ms);
 
             let candles = self
-                .fetch_candles(coin, interval, current_start, chunk_end)
+                .fetch_candles_with_dex(coin, dex, interval, current_start, chunk_end)
                 .await?;
 
             if candles.is_empty() {
@@ -233,6 +318,36 @@ impl HyperliquidHistoricalClient {
         }
 
         Ok(all_candles)
+    }
+
+    pub async fn fetch_l2_book(&self, coin: &str) -> Result<Option<L2BookData>, HyperliquidError> {
+        let url = format!("{}/info", self.config.rest_url);
+        let request = L2BookRequest {
+            req_type: "l2Book".to_string(),
+            coin: coin.to_string(),
+        };
+
+        let response = self
+            .http_client
+            .post(&url)
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| HyperliquidError::RequestError(e.to_string()))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let text = response.text().await.unwrap_or_default();
+            return Err(HyperliquidError::RequestError(format!(
+                "HTTP {}: {}",
+                status, text
+            )));
+        }
+
+        response
+            .json()
+            .await
+            .map_err(|e| HyperliquidError::InvalidResponse(e.to_string()))
     }
 
     pub async fn fetch_recent_trades(

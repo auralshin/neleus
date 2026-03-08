@@ -34,13 +34,14 @@ impl PyHyperliquidClient {
         Ok(Self { config, runtime })
     }
 
-    #[pyo3(signature = (coin, interval="1h", start_time_ms=None, end_time_ms=None))]
+    #[pyo3(signature = (coin, interval="1h", start_time_ms=None, end_time_ms=None, dex=None))]
     pub fn fetch_candles(
         &self,
         coin: &str,
         interval: &str,
         start_time_ms: Option<u64>,
         end_time_ms: Option<u64>,
+        dex: Option<String>,
     ) -> PyResult<Vec<PyHyperliquidCandle>> {
         let interval = match interval {
             "1m" => CandleInterval::Min1,
@@ -71,7 +72,7 @@ impl PyHyperliquidClient {
             .runtime
             .block_on(async {
                 client
-                    .fetch_candles_range(coin, interval, start, end, 5000)
+                    .fetch_candles_range_with_dex(coin, dex.as_deref(), interval, start, end, 5000)
                     .await
             })
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to fetch candles: {}", e)))?;
@@ -111,6 +112,17 @@ impl PyHyperliquidClient {
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to fetch spot meta: {}", e)))?;
 
         Ok(PyHyperliquidSpotMeta::from(meta))
+    }
+
+    pub fn fetch_l2_book(&self, coin: &str) -> PyResult<Option<PyHyperliquidL2BookUpdate>> {
+        let client = HyperliquidHistoricalClient::new(self.config.clone());
+
+        let update = self
+            .runtime
+            .block_on(async { client.fetch_l2_book(coin).await })
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to fetch l2 book: {}", e)))?;
+
+        Ok(update.map(PyHyperliquidL2BookUpdate::from))
     }
 
     pub fn stream_l2_book(&self, coin: &str) -> PyResult<PyHyperliquidL2BookStream> {
