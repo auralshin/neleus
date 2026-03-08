@@ -246,26 +246,47 @@ def render_brand_banner(compact: bool = False) -> Panel:
 
 
 def render_about_panel() -> Group:
-    command_table = Table(box=box.SIMPLE_HEAVY, expand=True)
-    command_table.add_column("Command", style="cyan", no_wrap=True)
-    command_table.add_column("What It Does")
-    command_table.add_row("neleus market search BTC", "Find matching perp, HIP-3, or spot markets")
-    command_table.add_row("neleus market analyze BTC-PERP", "Single-market TA and level read")
-    command_table.add_row("neleus market analyze GAS --scope hip3 --dex flx", "Resolve a HIP-3 market by query and analyze it")
-    command_table.add_row("neleus market scan --scope perps", "Rank markets by conviction-style TA score")
-    command_table.add_row("neleus market book BTC-PERP", "Live L2 order book in the terminal")
-    command_table.add_row("neleus market book GAS --scope hip3 --dex flx", "Open a live book without typing the full market id")
-    command_table.add_row("neleus new my_project", "Scaffold a strategy project when you need code")
+    top_level = Table(box=box.SIMPLE_HEAVY, expand=True)
+    top_level.add_column("Command", style="cyan", no_wrap=True)
+    top_level.add_column("What It Does")
+    top_level.add_row("neleus about", "Show the branded overview and quick command guide")
+    top_level.add_row("neleus version", "Print the installed CLI version")
+    top_level.add_row("neleus market ...", "Search, list, analyze, scan, and watch order books")
+    top_level.add_row("neleus new <name>", "Scaffold a new strategy project")
+    top_level.add_row("neleus init", "Initialize the current directory as a project")
+    top_level.add_row("neleus backtest", "Run a project strategy backtest")
+    top_level.add_row("neleus run --mode once|daemon", "Run the project runtime once or continuously")
+    top_level.add_row("neleus strategy list|new|show", "Manage strategy source files")
+    top_level.add_row("neleus db status|init", "Inspect or initialize the project database setup")
+    top_level.add_row("neleus info", "Show current project configuration and discovered strategies")
+
+    market_examples = Table(box=box.SIMPLE_HEAVY, expand=True)
+    market_examples.add_column("Example", style="cyan", no_wrap=True)
+    market_examples.add_column("Why You'd Use It")
+    market_examples.add_row("neleus market search BTC", "Find matching perp, HIP-3, or spot markets")
+    market_examples.add_row("neleus market analyze BTC-PERP", "Single-market TA and level read")
+    market_examples.add_row(
+        "neleus market analyze GAS --scope hip3 --dex flx",
+        "Resolve a HIP-3 market by query and analyze it",
+    )
+    market_examples.add_row("neleus market scan --scope perps", "Rank markets by conviction-style TA score")
+    market_examples.add_row("neleus market book BTC-PERP", "Live L2 order book in the terminal")
+    market_examples.add_row(
+        "neleus market book GAS --scope hip3 --dex flx",
+        "Open a live book without typing the full market id",
+    )
 
     notes = Text()
-    notes.append("Global commands work without creating a project.", style="bold green")
-    notes.append("\nProject-only commands are backtest, run, strategy, and project info.", style="dim")
+    notes.append("Top-level commands match `neleus --help`.", style="bold green")
+    notes.append("\nGlobal market commands work without a project.", style="dim")
+    notes.append("\nProject commands require a directory containing `neleus.toml`.", style="dim")
 
     return Group(
         render_brand_banner(),
         Columns(
             [
-                Panel(command_table, title="Quick Commands", border_style="bright_blue"),
+                Panel(top_level, title="Top-Level Commands", border_style="bright_blue"),
+                Panel(market_examples, title="Market Examples", border_style="bright_blue"),
                 Panel(notes, title="Workflow", border_style="bright_blue", padding=(1, 1)),
             ],
             expand=True,
