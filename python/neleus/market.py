@@ -33,6 +33,20 @@ DEFAULT_SCAN_SYMBOLS = (
     "AAVE",
 )
 
+SCOPE_ALIASES = {
+    "perp": "perps",
+    "perps": "perps",
+    "perpetual": "perps",
+    "perpetuals": "perps",
+    "hip3": "hip3",
+    "hip-3": "hip3",
+    "spot": "spot",
+    "spots": "spot",
+    "all-perp": "all-perps",
+    "all-perps": "all-perps",
+    "all_perps": "all-perps",
+}
+
 
 TIMEFRAME_TO_MINUTES = {
     "1m": 1,
@@ -70,6 +84,14 @@ def _timeframe_to_millis(timeframe: str) -> int:
     if minutes is None:
         raise ValueError(f"Unsupported timeframe '{timeframe}'")
     return minutes * 60 * 1000
+
+
+def normalize_market_scope(scope: str) -> str:
+    normalized = scope.strip().lower().replace("_", "-")
+    canonical = SCOPE_ALIASES.get(normalized)
+    if canonical is None:
+        raise ValueError("scope must be one of: perps, hip3, spot, all-perps")
+    return canonical
 
 
 def _ema(values: np.ndarray, period: int) -> float:
@@ -339,7 +361,7 @@ def list_markets(
     testnet: bool = False,
 ) -> MarketCatalog:
     client = HyperliquidClient(testnet=testnet)
-    normalized_scope = scope.lower()
+    normalized_scope = normalize_market_scope(scope)
     entries: List[MarketEntry] = []
     dex_counts: Dict[str, int] = {}
     total_tokens = 0
