@@ -182,6 +182,11 @@ jobs:
           working-directory: ${{ env.PACKAGE_DIR }}
           args: --profile packaging --strip --out dist --interpreter python${{ matrix.python-version }}
 
+      - name: Fix Linux wheel ownership
+        run: |
+          sudo chown -R "$(id -u):$(id -g)" "${{ env.DIST_DIR }}"
+          chmod -R u+rwX "${{ env.DIST_DIR }}"
+
       - name: Sanitize wheels
         run: python .github/scripts/sanitize_wheels.py ${{ env.DIST_DIR }}/*.whl
 

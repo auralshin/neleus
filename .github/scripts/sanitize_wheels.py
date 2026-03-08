@@ -30,16 +30,17 @@ def _record_row(name: str, data: bytes) -> tuple[str, str, str]:
 
 def sanitize_wheel(path: Path) -> None:
     removed: list[str] = []
-    with zipfile.ZipFile(path) as source:
-        record_name = next(
-            info.filename for info in source.infolist() if info.filename.endswith(".dist-info/RECORD")
-        )
-        with tempfile.NamedTemporaryFile(
-            prefix=path.stem + "-", suffix=".whl", delete=False, dir=path.parent
-        ) as handle:
-            temp_path = Path(handle.name)
+    temp_path: Path | None = None
+    try:
+        with zipfile.ZipFile(path) as source:
+            record_name = next(
+                info.filename for info in source.infolist() if info.filename.endswith(".dist-info/RECORD")
+            )
+            with tempfile.NamedTemporaryFile(
+                prefix=path.stem + "-", suffix=".whl", delete=False, dir=path.parent
+            ) as handle:
+                temp_path = Path(handle.name)
 
-        try:
             with zipfile.ZipFile(temp_path, "w", compression=zipfile.ZIP_DEFLATED) as target:
                 record_rows: list[tuple[str, str, str]] = []
                 for info in source.infolist():
@@ -70,10 +71,11 @@ def sanitize_wheel(path: Path) -> None:
                 record_rows.append((record_name, "", ""))
                 target.writestr(record_name, _serialize_record(record_rows))
 
-            os.replace(temp_path, path)
-        finally:
-            if temp_path.exists():
-                temp_path.unlink()
+        assert temp_path is not None
+        os.replace(temp_path, path)
+    finally:
+        if temp_path is not None and temp_path.exists():
+            temp_path.unlink()
 
     if removed:
         print(f"{path}: removed {len(removed)} unwanted entries")
