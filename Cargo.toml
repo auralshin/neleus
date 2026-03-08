@@ -82,6 +82,13 @@ debug = false            # No debug info
 [profile.release.package."*"]
 opt-level = 3
 
+[profile.packaging]
+inherits = "release"
+lto = "thin"
+codegen-units = 8
+strip = true
+panic = "abort"
+
 # Profile for profiling (keeps symbols for flamegraph)
 [profile.profiling]
 inherits = "release"

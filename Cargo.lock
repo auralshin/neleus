@@ -1983,6 +1983,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "neleus"
+version = "0.1.9"
+dependencies = [
+ "chrono",
+ "neleus-adapters-hyperliquid",
+ "neleus-backtest",
+ "neleus-core-bus",
+ "neleus-core-domain",
+ "neleus-core-engine",
+ "neleus-core-types",
+ "neleus-persistence",
+ "pyo3",
+ "serde",
+ "serde_json",
+ "tokio",
+ "uuid 1.20.0",
+]
+
+[[package]]
 name = "neleus-adapters-hyperliquid"
 version = "0.1.0"
 dependencies = [
@@ -2193,29 +2212,6 @@ dependencies = [
  "tokio",
  "tokio-postgres",
  "tracing",
-]
-
-[[package]]
-name = "neleus-pybridge"
-version = "0.1.3"
-dependencies = [
- "agent-comm",
- "agent-core",
- "agent-memory",
- "chrono",
- "neleus-adapters-hyperliquid",
- "neleus-adapters-lighter",
- "neleus-backtest",
- "neleus-core-bus",
- "neleus-core-domain",
- "neleus-core-engine",
- "neleus-core-types",
- "neleus-persistence",
- "pyo3",
- "serde",
- "serde_json",
- "tokio",
- "uuid 1.20.0",
 ]
 
 [[package]]

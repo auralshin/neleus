@@ -985,48 +985,6 @@ impl PyHyperliquidConfig {
     }
 }
 
-#[pyclass(name = "LighterConfig")]
-#[derive(Debug, Clone)]
-pub struct PyLighterConfig {
-    #[pyo3(get, set)]
-    pub network: PyNetwork,
-    #[pyo3(get, set)]
-    pub api_key: Option<String>,
-    #[pyo3(get, set)]
-    pub api_secret: Option<String>,
-}
-
-#[pymethods]
-impl PyLighterConfig {
-    #[new]
-    #[pyo3(signature = (network=PyNetwork::Mainnet, api_key=None, api_secret=None))]
-    pub fn new(network: PyNetwork, api_key: Option<String>, api_secret: Option<String>) -> Self {
-        Self {
-            network,
-            api_key,
-            api_secret,
-        }
-    }
-
-    #[staticmethod]
-    pub fn mainnet() -> Self {
-        Self {
-            network: PyNetwork::Mainnet,
-            api_key: None,
-            api_secret: None,
-        }
-    }
-
-    #[staticmethod]
-    pub fn testnet() -> Self {
-        Self {
-            network: PyNetwork::Testnet,
-            api_key: None,
-            api_secret: None,
-        }
-    }
-}
-
 #[pyclass(name = "BacktestConfig")]
 #[derive(Debug, Clone)]
 pub struct PyBacktestConfig {

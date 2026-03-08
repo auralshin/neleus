@@ -1,207 +1,515 @@
-name: Release to PyPI
-# Multi-platform, multi-version wheel builds
-# Uses PyO3/maturin-action for manylinux-compliant Linux wheels
-# Publishes via pypa/gh-action-pypi-publish using Trusted Publishing (OIDC)
+name: Build and Publish Python Distributions
 
 on:
-  release:
-    # 'published' fires for new releases and pre-releases moved out of draft,
-    # but NOT for draft releases. Use 'created' if drafts should also trigger.
-    types: [published]
-  workflow_dispatch:
   pull_request:
     branches: [main]
     paths:
-      - 'crates/**'
-      - 'python/**'
-      - 'Cargo.*'
-      - '.cargo/**'
-      - '.github/workflows/build-wheels.yml'
+      - "crates/**"
+      - "python/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/build-wheels.yml"
+      - ".github/scripts/**"
+  release:
+    types: [published]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+env:
+  PACKAGE_DIR: python
+  DIST_DIR: python/dist
+  PACKAGE_NAME: neleus
+  DOCS_URL: https://auralshin.github.io/neleus/
+  REPO_URL: https://github.com/auralshin/neleus
+  DESCRIPTION_MARKER: "# Neleus"
+
 jobs:
-  # ── Linux wheels (manylinux via Docker) ────────────────────────────
-  build-linux:
-    name: Build Linux (x86_64)
+  metadata:
+    name: Read Package Metadata
+    runs-on: ubuntu-latest
+    outputs:
+      package_name: ${{ steps.read.outputs.package_name }}
+      package_version: ${{ steps.read.outputs.package_version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - id: read
+        run: |
+          python - <<'PY'
+          import os
+          import tomllib
+          from pathlib import Path
+
+          data = tomllib.loads(Path("python/pyproject.toml").read_text())
+          output = Path(os.environ["GITHUB_OUTPUT"])
+          with output.open("a", encoding="utf-8") as handle:
+              handle.write(f"package_name={data['project']['name']}\n")
+              handle.write(f"package_version={data['project']['version']}\n")
+          PY
+
+  pr-smoke:
+    name: PR Packaging Smoke
+    if: github.event_name == 'pull_request'
+    needs: metadata
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build wheels
-        uses: PyO3/maturin-action@v1
+      - uses: actions/setup-python@v5
         with:
-          target: x86_64
-          manylinux: auto
-          args: --release --strip --out dist --interpreter 3.10 3.11 3.12 3.13 --manifest-path ../crates/pybridge/Cargo.toml
-          working-directory: python
+          python-version: "3.12"
 
-      - name: Upload wheels
-        uses: actions/upload-artifact@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
         with:
-          name: wheels-linux-x86_64
-          path: python/dist/*.whl
+          shared-key: pr-packaging-smoke
 
-  # ── macOS wheels ───────────────────────────────────────────────────
-  build-macos:
-    name: Build macOS (${{ matrix.target }})
-    runs-on: ${{ matrix.runner }}
+      - name: Install packaging tools
+        run: python -m pip install --upgrade pip build maturin twine
+
+      - name: Cargo check published bridge
+        run: cargo check -p neleus
+
+      - name: Build sdist
+        working-directory: ${{ env.PACKAGE_DIR }}
+        run: python -m build --sdist --no-isolation --outdir dist
+
+      - name: Build one smoke wheel
+        working-directory: ${{ env.PACKAGE_DIR }}
+        run: maturin build --profile packaging --strip --out dist -i python
+
+      - name: Sanitize wheels
+        run: python .github/scripts/sanitize_wheels.py ${{ env.DIST_DIR }}/*.whl
+
+      - name: Validate artifact metadata
+        run: |
+          python .github/scripts/packaging_checks.py artifact-metadata \
+            --expect-name "${{ needs.metadata.outputs.package_name }}" \
+            --expect-docs-url "${{ env.DOCS_URL }}" \
+            --expect-repo-url "${{ env.REPO_URL }}" \
+            --expect-marker "${{ env.DESCRIPTION_MARKER }}" \
+            ${{ env.DIST_DIR }}/*
+
+      - name: Validate wheel contents
+        run: python .github/scripts/packaging_checks.py wheel-contents ${{ env.DIST_DIR }}/*.whl
+
+      - name: Twine check
+        run: python -m twine check ${{ env.DIST_DIR }}/*
+
+      - name: Smoke install and CLI check
+        run: |
+          wheel="$(ls ${{ env.DIST_DIR }}/*.whl | head -n 1)"
+          python -m pip install --force-reinstall "$wheel"
+          python -c "import neleus; print(neleus.__version__)"
+          neleus about > /tmp/neleus-about.txt
+
+  build-sdist:
+    name: Build sdist
+    if: github.event_name != 'pull_request'
+    needs: metadata
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install packaging tools
+        run: python -m pip install --upgrade pip build maturin twine
+
+      - name: Build sdist
+        working-directory: ${{ env.PACKAGE_DIR }}
+        run: python -m build --sdist --no-isolation --outdir dist
+
+      - name: Validate sdist metadata
+        run: |
+          python .github/scripts/packaging_checks.py artifact-metadata \
+            --expect-name "${{ needs.metadata.outputs.package_name }}" \
+            --expect-docs-url "${{ env.DOCS_URL }}" \
+            --expect-repo-url "${{ env.REPO_URL }}" \
+            --expect-marker "${{ env.DESCRIPTION_MARKER }}" \
+            ${{ env.DIST_DIR }}/*.tar.gz
+
+      - name: Twine check sdist
+        run: python -m twine check ${{ env.DIST_DIR }}/*.tar.gz
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-sdist
+          path: ${{ env.DIST_DIR }}/*.tar.gz
+
+  build-linux:
+    name: Build Linux wheel (py${{ matrix.python-version }})
+    if: github.event_name != 'pull_request'
+    needs: metadata
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - target: x86_64
-            runner: macos-latest
-          - target: aarch64
-            runner: macos-latest
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.13'
+          python-version: "3.12"
 
-      - name: Build wheels
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: linux-wheel
+
+      - name: Install packaging tools
+        run: python -m pip install --upgrade pip twine
+
+      - name: Build Linux wheel
         uses: PyO3/maturin-action@v1
-        env:
-          PYO3_USE_ABI3_FORWARD_COMPATIBILITY: "1"
         with:
-          target: ${{ matrix.target }}
-          args: --release --strip --out dist --find-interpreter --manifest-path ../crates/pybridge/Cargo.toml
-          working-directory: python
-
-      - name: Upload wheels
-        uses: actions/upload-artifact@v4
-        with:
-          name: wheels-macos-${{ matrix.target }}
-          path: python/dist/*.whl
-
-  # ── Windows wheels ─────────────────────────────────────────────────
-  build-windows:
-    name: Build Windows (x86_64)
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.13'
-
-      - name: Build wheels
-        uses: PyO3/maturin-action@v1
-        env:
-          PYO3_USE_ABI3_FORWARD_COMPATIBILITY: "1"
-        with:
+          command: build
           target: x86_64
-          args: --release --strip --out dist --find-interpreter --manifest-path ../crates/pybridge/Cargo.toml
-          working-directory: python
+          manylinux: "2014"
+          working-directory: ${{ env.PACKAGE_DIR }}
+          args: --profile packaging --strip --out dist --interpreter python${{ matrix.python-version }}
 
-      - name: Upload wheels
-        uses: actions/upload-artifact@v4
+      - name: Sanitize wheels
+        run: python .github/scripts/sanitize_wheels.py ${{ env.DIST_DIR }}/*.whl
+
+      - name: Validate wheel metadata
+        run: |
+          python .github/scripts/packaging_checks.py artifact-metadata \
+            --expect-name "${{ needs.metadata.outputs.package_name }}" \
+            --expect-docs-url "${{ env.DOCS_URL }}" \
+            --expect-repo-url "${{ env.REPO_URL }}" \
+            --expect-marker "${{ env.DESCRIPTION_MARKER }}" \
+            ${{ env.DIST_DIR }}/*.whl
+
+      - name: Validate wheel contents
+        run: python .github/scripts/packaging_checks.py wheel-contents ${{ env.DIST_DIR }}/*.whl
+
+      - name: Twine check wheel
+        run: python -m twine check ${{ env.DIST_DIR }}/*.whl
+
+      - uses: actions/upload-artifact@v4
         with:
-          name: wheels-windows-x86_64
-          path: python/dist/*.whl
+          name: dist-linux-py${{ matrix.python-version }}
+          path: ${{ env.DIST_DIR }}/*.whl
 
-  # ── Security verification ──────────────────────────────────────────
-  verify:
-    name: Verify wheels
-    needs: [build-linux, build-macos, build-windows]
+  build-macos:
+    name: Build macOS wheel (${{ matrix.build.target }} / py${{ matrix.python-version }})
+    if: github.event_name != 'pull_request'
+    needs: metadata
+    runs-on: ${{ matrix.build.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        build:
+          - runner: macos-13
+            target: x86_64-apple-darwin
+          - runner: macos-14
+            target: aarch64-apple-darwin
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: macos-wheel-${{ matrix.build.target }}
+
+      - name: Install packaging tools
+        run: python -m pip install --upgrade pip build maturin twine
+
+      - name: Build macOS wheel
+        working-directory: ${{ env.PACKAGE_DIR }}
+        run: maturin build --profile packaging --strip --out dist -i python --target ${{ matrix.build.target }}
+
+      - name: Sanitize wheels
+        run: python .github/scripts/sanitize_wheels.py ${{ env.DIST_DIR }}/*.whl
+
+      - name: Validate wheel metadata
+        run: |
+          python .github/scripts/packaging_checks.py artifact-metadata \
+            --expect-name "${{ needs.metadata.outputs.package_name }}" \
+            --expect-docs-url "${{ env.DOCS_URL }}" \
+            --expect-repo-url "${{ env.REPO_URL }}" \
+            --expect-marker "${{ env.DESCRIPTION_MARKER }}" \
+            ${{ env.DIST_DIR }}/*.whl
+
+      - name: Validate wheel contents
+        run: python .github/scripts/packaging_checks.py wheel-contents ${{ env.DIST_DIR }}/*.whl
+
+      - name: Twine check wheel
+        run: python -m twine check ${{ env.DIST_DIR }}/*.whl
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-macos-${{ matrix.build.target }}-py${{ matrix.python-version }}
+          path: ${{ env.DIST_DIR }}/*.whl
+
+  build-windows:
+    name: Build Windows wheel (py${{ matrix.python-version }})
+    if: github.event_name != 'pull_request'
+    needs: metadata
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: windows-wheel
+
+      - name: Install packaging tools
+        run: python -m pip install --upgrade pip build maturin twine
+
+      - name: Build Windows wheel
+        working-directory: ${{ env.PACKAGE_DIR }}
+        run: maturin build --profile packaging --strip --out dist -i python
+
+      - name: Sanitize wheels
+        run: |
+          $wheels = Get-ChildItem "${{ env.DIST_DIR }}/*.whl" | ForEach-Object { $_.FullName }
+          python .github/scripts/sanitize_wheels.py $wheels
+        shell: pwsh
+
+      - name: Validate wheel metadata
+        run: |
+          $wheels = Get-ChildItem "${{ env.DIST_DIR }}/*.whl" | ForEach-Object { $_.FullName }
+          python .github/scripts/packaging_checks.py artifact-metadata `
+            --expect-name "${{ needs.metadata.outputs.package_name }}" `
+            --expect-docs-url "${{ env.DOCS_URL }}" `
+            --expect-repo-url "${{ env.REPO_URL }}" `
+            --expect-marker "${{ env.DESCRIPTION_MARKER }}" `
+            $wheels
+        shell: pwsh
+
+      - name: Validate wheel contents
+        run: |
+          $wheels = Get-ChildItem "${{ env.DIST_DIR }}/*.whl" | ForEach-Object { $_.FullName }
+          python .github/scripts/packaging_checks.py wheel-contents $wheels
+        shell: pwsh
+
+      - name: Twine check wheel
+        run: |
+          $wheels = Get-ChildItem "${{ env.DIST_DIR }}/*.whl" | ForEach-Object { $_.FullName }
+          python -m twine check $wheels
+        shell: pwsh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-windows-py${{ matrix.python-version }}
+          path: ${{ env.DIST_DIR }}/*.whl
+
+  verify-artifacts:
+    name: Verify release artifacts
+    if: github.event_name != 'pull_request'
+    needs: [metadata, build-sdist, build-linux, build-macos, build-windows]
     runs-on: ubuntu-latest
     steps:
-      - name: Download all wheels
-        uses: actions/download-artifact@v4
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install packaging tools
+        run: python -m pip install --upgrade pip twine
+
+      - uses: actions/download-artifact@v4
         with:
           path: dist
-          pattern: wheels-*
+          pattern: dist-*
           merge-multiple: true
 
-      - name: Verify no source code in wheels
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          wheels=(dist/*.whl)
-          if [ ${#wheels[@]} -eq 0 ]; then
-            echo "ERROR: No wheels found in dist/"
-            exit 1
-          fi
-          echo "Scanning ${#wheels[@]} wheel(s) for source code leaks..."
-          for wheel in "${wheels[@]}"; do
-            echo "Checking $wheel..."
-            if unzip -l "$wheel" | grep -iE '\.rs$|Cargo\.toml|crates/|build\.rs'; then
-              echo "ERROR: Source code found in $wheel"
-              exit 1
-            fi
-            echo "✓ Clean"
-          done
-          echo "✅ All wheels passed security verification"
+      - name: Show collected artifacts
+        run: ls -lh dist
 
-      - name: List all wheels
+      - name: Validate artifact metadata
         run: |
-          echo "## Built wheels"
-          ls -lh dist/*.whl
-          echo ""
-          echo "Total: $(ls dist/*.whl | wc -l) wheels"
+          python .github/scripts/packaging_checks.py artifact-metadata \
+            --expect-name "${{ needs.metadata.outputs.package_name }}" \
+            --expect-docs-url "${{ env.DOCS_URL }}" \
+            --expect-repo-url "${{ env.REPO_URL }}" \
+            --expect-marker "${{ env.DESCRIPTION_MARKER }}" \
+            dist/*
 
-  # ── Attach wheels to GitHub Release ────────────────────────────────
-  release-upload:
-    name: Upload to GitHub Release
-    needs: [verify]
+      - name: Validate wheel contents
+        run: python .github/scripts/packaging_checks.py wheel-contents dist/*.whl
+
+      - name: Twine check all artifacts
+        run: python -m twine check dist/*
+
+  upload-release-assets:
+    name: Upload artifacts to GitHub Release
     if: github.event_name == 'release'
+    needs: [verify-artifacts]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - name: Download all wheels
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           path: dist
-          pattern: wheels-*
+          pattern: dist-*
           merge-multiple: true
 
-      - name: Upload to release
+      - name: Upload artifacts to release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/*.whl
+          files: dist/*
 
-  # ── Publish to PyPI ──────────────────────────────────────────────────
-  # Uses Trusted Publishing (OIDC) — no token needed.
-  # GitHub is configured as a Trusted Publisher on PyPI for this repo.
-  publish:
-    name: Publish to PyPI
-    needs: [verify]
-    if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
+  publish-testpypi:
+    name: Publish to TestPyPI
+    if: github.event_name == 'release'
+    needs: [metadata, verify-artifacts]
     runs-on: ubuntu-latest
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/project/${{ needs.metadata.outputs.package_name }}/
     permissions:
       id-token: write
     steps:
-      - name: Download all wheels
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           path: dist
-          pattern: wheels-*
+          pattern: dist-*
           merge-multiple: true
 
-      - name: Publish to PyPI
+      - name: Publish distributions to TestPyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
+          repository-url: https://test.pypi.org/legacy/
+          attestations: false
+
+  verify-testpypi:
+    name: Verify TestPyPI release
+    if: github.event_name == 'release'
+    needs: [metadata, publish-testpypi]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Retry install from TestPyPI
+        env:
+          PACKAGE_NAME: ${{ needs.metadata.outputs.package_name }}
+          PACKAGE_VERSION: ${{ needs.metadata.outputs.package_version }}
+        run: |
+          python -m pip install --upgrade pip
+          for attempt in $(seq 1 20); do
+            if python -m pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ "${PACKAGE_NAME}==${PACKAGE_VERSION}"; then
+              exit 0
+            fi
+            echo "TestPyPI package not ready yet (attempt ${attempt}/20)"
+            sleep 15
+          done
+          exit 1
+
+      - name: Smoke import and CLI
+        run: |
+          python -c "import neleus; print(neleus.__version__)"
+          neleus about > /tmp/neleus-about.txt
+
+      - name: Verify published metadata on TestPyPI
+        run: |
+          python .github/scripts/packaging_checks.py index-metadata \
+            --base-url https://test.pypi.org \
+            --package-name "${{ needs.metadata.outputs.package_name }}" \
+            --package-version "${{ needs.metadata.outputs.package_version }}" \
+            --expect-docs-url "${{ env.DOCS_URL }}" \
+            --expect-repo-url "${{ env.REPO_URL }}" \
+            --expect-marker "${{ env.DESCRIPTION_MARKER }}"
+
+  publish-pypi:
+    name: Publish to PyPI
+    if: github.event_name == 'release'
+    needs: [metadata, verify-testpypi]
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/${{ needs.metadata.outputs.package_name }}/${{ needs.metadata.outputs.package_version }}/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: dist-*
+          merge-multiple: true
+
+      - name: Publish distributions to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist/
           attestations: false
+
+  verify-pypi:
+    name: Verify PyPI release
+    if: github.event_name == 'release'
+    needs: [metadata, publish-pypi]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Retry install from PyPI
+        env:
+          PACKAGE_NAME: ${{ needs.metadata.outputs.package_name }}
+          PACKAGE_VERSION: ${{ needs.metadata.outputs.package_version }}
+        run: |
+          python -m pip install --upgrade pip
+          for attempt in $(seq 1 20); do
+            if python -m pip install "${PACKAGE_NAME}==${PACKAGE_VERSION}"; then
+              exit 0
+            fi
+            echo "PyPI package not ready yet (attempt ${attempt}/20)"
+            sleep 15
+          done
+          exit 1
+
+      - name: Smoke import and CLI
+        run: |
+          python -c "import neleus; print(neleus.__version__)"
+          neleus about > /tmp/neleus-about.txt
+
+      - name: Verify published metadata on PyPI
+        run: |
+          python .github/scripts/packaging_checks.py index-metadata \
+            --base-url https://pypi.org \
+            --package-name "${{ needs.metadata.outputs.package_name }}" \
+            --package-version "${{ needs.metadata.outputs.package_version }}" \
+            --expect-docs-url "${{ env.DOCS_URL }}" \
+            --expect-repo-url "${{ env.REPO_URL }}" \
+            --expect-marker "${{ env.DESCRIPTION_MARKER }}"

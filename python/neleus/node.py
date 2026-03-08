@@ -14,14 +14,11 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, TYPE_CHECKING, Union
+from typing import Any, Dict, Generic, List, Optional, TYPE_CHECKING, TypeVar
 
 from .constants import (
     DEFAULT_LOOKBACK_DAYS,
     ANNUALIZATION_FACTOR,
-    RSI_PERIOD,
-    DEFAULT_MAKER_FEE_BPS,
-    DEFAULT_TAKER_FEE_BPS,
 )
 
 logger = logging.getLogger(__name__)
@@ -31,11 +28,7 @@ from .types import (
     Network,
     FillModel,
     LatencyModel,
-    HyperliquidConfig,
-    LighterConfig,
     OrderSide,
-    OrderType,
-    TimeInForce,
     Bar,
     StrategyContext,
     InstrumentId,
@@ -45,6 +38,9 @@ from .types import (
 
 if TYPE_CHECKING:
     from .strategy import Strategy
+
+
+NodeResultT = TypeVar("NodeResultT", covariant=True)
 
 
 # =============================================================================
@@ -84,36 +80,7 @@ class HyperliquidVenueConfig:
             )
 
 
-@dataclass
-class LighterVenueConfig:
-    """Lighter (zkLighter) venue configuration for live/paper trading."""
-    network: Network = field(default_factory=lambda: Network.Mainnet)
-    api_key: Optional[str] = None
-    api_secret: Optional[str] = None
-    
-    # Connection settings
-    ws_url: Optional[str] = None
-    rest_url: Optional[str] = None
-    
-    # Account tier for fee calculation
-    account_tier: str = "standard"
-    
-    def __post_init__(self):
-        if self.ws_url is None:
-            self.ws_url = (
-                "wss://mainnet.zklighter.com/ws"
-                if self.network == Network.Mainnet
-                else "wss://testnet.zklighter.com/ws"
-            )
-        if self.rest_url is None:
-            self.rest_url = (
-                "https://mainnet.zklighter.com/api"
-                if self.network == Network.Mainnet
-                else "https://testnet.zklighter.com/api"
-            )
-
-
-VenueConfig = Union[HyperliquidVenueConfig, LighterVenueConfig]
+VenueConfig = HyperliquidVenueConfig
 
 
 @dataclass
@@ -286,7 +253,7 @@ Costs:
 # =============================================================================
 
 
-class Node(ABC):
+class Node(ABC, Generic[NodeResultT]):
     """
     Abstract base class for trading nodes.
     
@@ -305,24 +272,24 @@ class Node(ABC):
     def is_running(self) -> bool:
         return self._is_running
 
-    def add_strategy(self, strategy: "Strategy") -> "Node":
+    def add_strategy(self, strategy: "Strategy") -> "Node[NodeResultT]":
         """Add a strategy to this node."""
         self._strategies.append(strategy)
         return self
 
-    def add_strategies(self, *strategies: "Strategy") -> "Node":
+    def add_strategies(self, *strategies: "Strategy") -> "Node[NodeResultT]":
         """Add multiple strategies to this node."""
         for strategy in strategies:
             self.add_strategy(strategy)
         return self
 
     @abstractmethod
-    def run(self) -> None:
+    def run(self) -> NodeResultT:
         """Run the node synchronously."""
         pass
 
     @abstractmethod
-    async def run_async(self) -> None:
+    async def run_async(self) -> NodeResultT:
         """Run the node asynchronously."""
         pass
 
@@ -336,7 +303,7 @@ class Node(ABC):
 # =============================================================================
 
 
-class BacktestNode(Node):
+class BacktestNode(Node[BacktestResults]):
     """
     Node for backtesting strategies on historical data.
     
@@ -433,7 +400,7 @@ class BacktestNode(Node):
 # =============================================================================
 
 
-class PaperNode(Node):
+class PaperNode(Node[None]):
     """
     Node for paper trading with live market data.
     
@@ -450,7 +417,7 @@ class PaperNode(Node):
     def __init__(
         self,
         venues: List[VenueConfig],
-        simulation: SimulationConfig = None,
+        simulation: Optional[SimulationConfig] = None,
         node_id: Optional[str] = None,
     ):
         super().__init__(node_id)
@@ -496,7 +463,7 @@ class PaperNode(Node):
 # =============================================================================
 
 
-class LiveNode(Node):
+class LiveNode(Node[None]):
     """
     Node for live trading with real order execution.
     
@@ -547,12 +514,8 @@ class LiveNode(Node):
     def _validate_config(self) -> None:
         """Validate venue configurations for live trading."""
         for venue in self.venues:
-            if isinstance(venue, HyperliquidVenueConfig):
-                if not venue.wallet_address:
-                    raise ValueError("Hyperliquid requires wallet_address for live trading")
-            elif isinstance(venue, LighterVenueConfig):
-                if not venue.api_key:
-                    raise ValueError("Lighter requires api_key for live trading")
+            if not venue.wallet_address:
+                raise ValueError("Hyperliquid requires wallet_address for live trading")
 
     async def _connect_venues(self) -> None:
         """Connect to venues."""
@@ -664,7 +627,7 @@ class HyperliquidBacktestConfig:
             self.start_time = self.end_time - timedelta(days=self.lookback_days)
 
 
-class HyperliquidBacktestNode(Node):
+class HyperliquidBacktestNode(Node[BacktestResults]):
     """
     Backtest node that fetches historical data from Hyperliquid.
     
@@ -698,6 +661,11 @@ class HyperliquidBacktestNode(Node):
     async def _fetch_hyperliquid_candles(self) -> List[Dict[str, Any]]:
         """Fetch historical candles from Hyperliquid API."""
         import aiohttp
+
+        start_time = self.config.start_time
+        end_time = self.config.end_time
+        if start_time is None or end_time is None:
+            raise RuntimeError("HyperliquidBacktestConfig must have start_time and end_time set")
         
         base_url = (
             "https://api.hyperliquid-testnet.xyz"
@@ -705,8 +673,8 @@ class HyperliquidBacktestNode(Node):
             else "https://api.hyperliquid.xyz"
         )
         
-        start_ms = int(self.config.start_time.timestamp() * 1000)
-        end_ms = int(self.config.end_time.timestamp() * 1000)
+        start_ms = int(start_time.timestamp() * 1000)
+        end_ms = int(end_time.timestamp() * 1000)
         
         request = {
             "type": "candleSnapshot",
@@ -751,6 +719,11 @@ class HyperliquidBacktestNode(Node):
             
             if not raw_candles:
                 raise RuntimeError("No candle data received")
+
+            start_time = self.config.start_time
+            end_time = self.config.end_time
+            if start_time is None or end_time is None:
+                raise RuntimeError("HyperliquidBacktestConfig must have start_time and end_time set")
             
             # Initialize tracking
             equity_curve = []
@@ -778,7 +751,7 @@ class HyperliquidBacktestNode(Node):
                 strategy.on_start(ctx)
                 
                 # Process each bar
-                for i, candle in enumerate(raw_candles):
+                for candle in raw_candles:
                     timestamp_ns = candle["t"] * 1_000_000
                     
                     # Create bar (Rust Bar uses float, but we convert to Decimal internally)
@@ -898,7 +871,7 @@ class HyperliquidBacktestNode(Node):
             else:
                 sharpe = sortino = volatility = 0.0
             
-            trading_days = (self.config.end_time - self.config.start_time).days
+            trading_days = (end_time - start_time).days
             annualized = total_return * (365 / trading_days) if trading_days > 0 else 0.0
             calmar = total_return / max_dd if max_dd > 0 else 0.0
             
@@ -923,8 +896,8 @@ class HyperliquidBacktestNode(Node):
                 avg_win=0.0,
                 avg_loss=0.0,
                 profit_factor=0.0,
-                start_time=self.config.start_time,
-                end_time=self.config.end_time,
+                start_time=start_time,
+                end_time=end_time,
                 trading_days=trading_days,
                 total_commission=float(total_commission),
             )
@@ -937,8 +910,8 @@ class HyperliquidBacktestNode(Node):
                 fills=fills,
                 positions=[],
                 config=BacktestConfig(
-                    start_time=self.config.start_time,
-                    end_time=self.config.end_time,
+                    start_time=start_time,
+                    end_time=end_time,
                 ),
             )
             
@@ -955,7 +928,6 @@ class HyperliquidBacktestNode(Node):
 __all__ = [
     # Venue configs
     "HyperliquidVenueConfig",
-    "LighterVenueConfig",
     "VenueConfig",
     # Simulation
     "SimulationConfig",

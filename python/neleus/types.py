@@ -6,9 +6,78 @@ The Python package expects the compiled `neleus_core` extension produced from
 """
 
 from __future__ import annotations
+
 import logging
-from typing import TYPE_CHECKING, List, Dict, Any, Optional, Union
-from decimal import Decimal
+from enum import Enum
+from typing import TYPE_CHECKING, Any, Union
+
+if TYPE_CHECKING:
+    Venue: Any
+    InstrumentType: Any
+    OrderSide: Any
+    OrderType: Any
+    TimeInForce: Any
+    OrderState: Any
+    PositionSide: Any
+    Network: Any
+    FillModel: Any
+    LatencyModel: Any
+    InstrumentId: Any
+    TradeTick: Any
+    QuoteTick: Any
+    BookLevel: Any
+    OrderBook: Any
+    Bar: Any
+    Order: Any
+    Fill: Any
+    Position: Any
+    OrderRequest: Any
+    StrategyContext: Any
+    BacktestResults: Any
+    HyperliquidConfig: Any
+    BacktestConfig: Any
+    RiskConfig: Any
+    TwapParams: Any
+    VwapParams: Any
+    IcebergParams: Any
+    HyperliquidClient: Any
+    HyperliquidCandle: Any
+    HyperliquidMeta: Any
+    HyperliquidAsset: Any
+    HyperliquidSpotMeta: Any
+    HyperliquidSpotToken: Any
+    HyperliquidSpotMarket: Any
+    HyperliquidL2Level: Any
+    HyperliquidL2BookUpdate: Any
+    HyperliquidL2BookStream: Any
+    PostgresEventStoreConfig: Any
+    PostgresEventStore: Any
+    TimescaleConfig: Any
+    TimescaleStore: Any
+    OrderResult: Any
+    OpenOrder: Any
+    FillRecord: Any
+    HyperliquidTrader: Any
+    DbOrderRecord: Any
+    DbFillRecord: Any
+    PnlSummary: Any
+    TradeMonitor: Any
+    rust_version: Any
+
+
+class SubscriptionType(Enum):
+    Bars = "bars"
+    Trades = "trades"
+    Quotes = "quotes"
+    Book = "book"
+
+
+class Signal(Enum):
+    """Trading signal returned by strategies."""
+
+    BUY = "buy"
+    SELL = "sell"
+    HOLD = "hold"
 
 try:
     from .neleus_core import (
@@ -40,7 +109,6 @@ try:
         BacktestResults,
         # Config
         HyperliquidConfig,
-        LighterConfig,
         BacktestConfig,
         RiskConfig,
         # Algos
@@ -82,22 +150,6 @@ try:
     # Market data union type
     MarketData = Union[Bar, TradeTick, QuoteTick, OrderBook]
 
-    # Subscription types (Python-side enum since it's not in Rust yet)
-    from enum import Enum
-
-    class SubscriptionType(Enum):
-        Bars = "bars"
-        Trades = "trades"
-        Quotes = "quotes"
-        Book = "book"
-
-    # Signal enum for strategy returns
-    class Signal(Enum):
-        """Trading signal returned by strategies."""
-        BUY = "buy"
-        SELL = "sell"
-        HOLD = "hold"
-
     def using_rust_types() -> bool:
         """Check if using Rust types (always True in this version)."""
         return True
@@ -133,7 +185,6 @@ except ImportError as e:
             BacktestResults,
             # Config
             HyperliquidConfig,
-            LighterConfig,
             BacktestConfig,
             RiskConfig,
             # Algos
@@ -170,24 +221,10 @@ except ImportError as e:
             version as rust_version,
         )
 
-        logging.getLogger(__name__).info("Using Rust core (v%s)", rust_version())
+        logging.getLogger(__name__).info(
+            "Using Rust core (v%s)", rust_version())
 
         MarketData = Union[Bar, TradeTick, QuoteTick, OrderBook]
-
-        from enum import Enum
-
-        class SubscriptionType(Enum):
-            Bars = "bars"
-            Trades = "trades"
-            Quotes = "quotes"
-            Book = "book"
-
-        class Signal(Enum):
-            """Trading signal returned by strategies."""
-
-            BUY = "buy"
-            SELL = "sell"
-            HOLD = "hold"
 
         def using_rust_types() -> bool:
             """Check if using Rust types (always True in this version)."""
@@ -195,27 +232,27 @@ except ImportError as e:
 
     except ImportError:
         raise ImportError(
-        "\n\n"
-        "╔════════════════════════════════════════════════════════════════╗\n"
-        "║  Neleus Rust Extension Not Available                           ║\n"
-        "╚════════════════════════════════════════════════════════════════╝\n"
-        "\n"
-        "The Rust core (neleus_core) is required for Neleus to run.\n"
-        "\n"
-        "To build and install the Rust extension:\n"
-        "\n"
-        "  1. Build the PyBridge:\n"
-        "     cd crates/pybridge\n"
-        "     maturin develop --release\n"
-        "\n"
-        "  2. Or build the entire workspace:\n"
-        "     cargo build --release\n"
-        "     maturin develop --release -m crates/pybridge/Cargo.toml\n"
-        "\n"
-        "  3. For production:\n"
-        "     maturin build --release\n"
-        "\n"
-        f"Original error: {e}\n"
+            "\n\n"
+            "╔════════════════════════════════════════════════════════════════╗\n"
+            "║  Neleus Rust Extension Not Available                           ║\n"
+            "╚════════════════════════════════════════════════════════════════╝\n"
+            "\n"
+            "The Rust core (neleus_core) is required for Neleus to run.\n"
+            "\n"
+            "To build and install the Rust extension:\n"
+            "\n"
+            "  1. Build the PyBridge:\n"
+            "     cd python\n"
+            "     maturin develop --release\n"
+            "\n"
+            "  2. Or build the entire workspace:\n"
+            "     cargo build --release\n"
+            "     cd python && maturin develop --release\n"
+            "\n"
+            "  3. For production:\n"
+            "     cd python && maturin build --profile packaging --strip\n"
+            "\n"
+            f"Original error: {e}\n"
         ) from e
 
 
@@ -252,7 +289,6 @@ __all__ = [
     "BacktestResults",
     # Config
     "HyperliquidConfig",
-    "LighterConfig",
     "BacktestConfig",
     "RiskConfig",
     # Algos

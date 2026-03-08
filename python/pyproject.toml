@@ -1,6 +1,6 @@
 [project]
 name = "neleus"
-version = "0.1.8"
+version = "0.1.9"
 description = "Hyperliquid-first trading CLI and Python toolkit for terminal-first trading workflows"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -59,11 +59,20 @@ manifest-path = "../crates/pybridge/Cargo.toml"
 python-source = "."
 # Module name must match the #[pymodule] name in Rust
 module-name = "neleus.neleus_core"
-# SECURITY: Binary-only distribution - do not create source distributions
-# This protects company IP by only releasing compiled wheels
+# Build the installable wheel using the packaging-optimized Cargo profile.
+profile = "packaging"
+# Build a canonical sdist from the Cargo package metadata.
+sdist-generator = "cargo"
+# Restrict PyPI metadata tags to uploadable distributions.
+compatibility = "pypi"
+# Exclude local cache files from wheels and sdists.
+exclude = [
+    "neleus/**/__pycache__/**",
+    "neleus/**/*.pyc",
+    "neleus/**/*.pyo",
+]
 strip = true
-# Only build wheel, never sdist (source distribution)
-# Use: maturin build --release --strip
+# Use: cd python && maturin build --profile packaging --strip
 
 [tool.black]
 line-length = 100

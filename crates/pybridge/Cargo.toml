@@ -1,6 +1,6 @@
 [package]
 name = "neleus"
-version = "0.1.8"
+version = "0.1.9"
 edition.workspace = true
 license.workspace = true
 
@@ -15,12 +15,7 @@ neleus-core-domain = { path = "../core-domain" }
 neleus-core-engine = { path = "../core-engine" }
 neleus-backtest = { path = "../backtest" }
 neleus-adapters-hyperliquid = { path = "../adapters-hyperliquid" }
-neleus-adapters-lighter = { path = "../adapters-lighter" }
 neleus-persistence = { path = "../persistence" }
-# AI Agent crates
-agent-memory = { path = "../agent-memory" }
-agent-comm = { path = "../agent-comm" }
-agent-core = { path = "../agent-core" }
 pyo3 = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

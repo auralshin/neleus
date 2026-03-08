@@ -15,8 +15,9 @@ python3 -m venv .venv
 source .venv/bin/activate
 
 pip install maturin
-maturin develop --release -m crates/pybridge/Cargo.toml
-pip install -e python/
+cd python
+maturin develop --release
+pip install -e .
 ```
 
 ## Verify The Install

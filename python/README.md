@@ -21,7 +21,7 @@ It is built for terminal-first trading workflows:
 
 ```bash
 pip install maturin
-maturin develop --release -m ../crates/pybridge/Cargo.toml
+maturin develop --release
 pip install -e .
 ```
 
