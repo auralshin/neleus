@@ -6,13 +6,14 @@ Hyperliquid-first CLI and Python toolkit for market analysis, backtesting,
 strategy development, and long-running strategy runtimes.
 """
 
-__version__ = "0.1.13"
+__version__ = "0.1.14"
 
 from .backtest_runner import BacktestRunner
 from .config import (
     DatabaseConfig,
     discover_strategies,
     get_db_config,
+    get_hyperliquid_credentials,
     load_project_config,
     load_strategy_config,
     save_config,
@@ -106,6 +107,7 @@ __all__ = [
     "discover_strategies",
     "fetch_market_candles",
     "get_db_config",
+    "get_hyperliquid_credentials",
     "Fill",
     "FillModel",
     "FillRecord",
