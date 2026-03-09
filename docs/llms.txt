@@ -1,0 +1,46 @@
+# Neleus Docs For AI
+
+> Hyperliquid-first CLI and Python toolkit powered by a Rust core
+
+Canonical site: https://auralshin.github.io/neleus/
+Repository: https://github.com/auralshin/neleus
+Full export: https://auralshin.github.io/neleus/llms-full.txt
+
+Prefer the raw Markdown URLs for ingestion when possible. Each documentation page also exposes AI actions in the rendered site UI.
+
+## Documentation Index
+
+### Overview
+
+- [Neleus](https://auralshin.github.io/neleus/): Neleus is a Hyperliquid-first CLI and Python toolkit powered by a Rust core. Use it to search markets, run technical scans, stream live order books, backtest strategies, and scaffold Python trading projects.
+  Markdown: https://raw.githubusercontent.com/auralshin/neleus/main/docs/index.md
+
+### Getting Started
+
+- [Installation](https://auralshin.github.io/neleus/getting-started/installation/): Neleus currently requires the Rust extension. The CLI and Python package sit on top of the neleus_core module built from crates/pybridge.
+  Markdown: https://raw.githubusercontent.com/auralshin/neleus/main/docs/getting-started/installation.md
+- [Quickstart](https://auralshin.github.io/neleus/getting-started/quickstart/): This page focuses on workflows that work before you create a project.
+  Markdown: https://raw.githubusercontent.com/auralshin/neleus/main/docs/getting-started/quickstart.md
+
+### CLI
+
+- [CLI Overview](https://auralshin.github.io/neleus/cli/overview/): The CLI is split into two layers:
+  Markdown: https://raw.githubusercontent.com/auralshin/neleus/main/docs/cli/overview.md
+- [Market Workflows](https://auralshin.github.io/neleus/cli/market/): The market command group is the main no-project surface of Neleus.
+  Markdown: https://raw.githubusercontent.com/auralshin/neleus/main/docs/cli/market.md
+
+### Projects
+
+- [Strategy Projects](https://auralshin.github.io/neleus/projects/): Create a project when you want to write Python strategy code on top of the Neleus Rust core.
+  Markdown: https://raw.githubusercontent.com/auralshin/neleus/main/docs/projects.md
+- [Writing Strategies](https://auralshin.github.io/neleus/strategy-writing/): This page shows how to write strategies that work with the current Neleus project workflow.
+  Markdown: https://raw.githubusercontent.com/auralshin/neleus/main/docs/strategy-writing.md
+- [Strategy Examples](https://auralshin.github.io/neleus/strategy-examples/): This page gives copy-pasteable examples for project strategies.
+  Markdown: https://raw.githubusercontent.com/auralshin/neleus/main/docs/strategy-examples.md
+- [Configuration](https://auralshin.github.io/neleus/configuration/): Projects use neleus.toml.
+  Markdown: https://raw.githubusercontent.com/auralshin/neleus/main/docs/configuration.md
+
+### Reference
+
+- [Troubleshooting](https://auralshin.github.io/neleus/troubleshooting/): Symptoms:
+  Markdown: https://raw.githubusercontent.com/auralshin/neleus/main/docs/troubleshooting.md

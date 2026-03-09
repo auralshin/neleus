@@ -36,6 +36,9 @@ theme:
 plugins:
   - search
 
+hooks:
+  - docs/hooks/ai_exports.py
+
 markdown_extensions:
   - admonition
   - attr_list
@@ -51,6 +54,9 @@ markdown_extensions:
 
 extra_css:
   - stylesheets/extra.css
+
+extra_javascript:
+  - javascripts/ai-actions.js
 
 nav:
   - Home: index.md
@@ -69,6 +75,7 @@ nav:
       - Troubleshooting: troubleshooting.md
 
 extra:
+  docs_branch: main
   social:
     - icon: fontawesome/brands/github
       link: https://github.com/auralshin/neleus

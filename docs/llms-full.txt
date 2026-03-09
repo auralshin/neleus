@@ -1,0 +1,1388 @@
+# Neleus Full Documentation Export
+
+> Hyperliquid-first CLI and Python toolkit powered by a Rust core
+
+Canonical site: https://auralshin.github.io/neleus/
+Repository: https://github.com/auralshin/neleus
+Index: https://auralshin.github.io/neleus/llms.txt
+
+This file concatenates the current documentation source Markdown so AI systems can fetch the docs corpus in one request.
+
+## Page Index
+
+- [Neleus](https://auralshin.github.io/neleus/): Neleus is a Hyperliquid-first CLI and Python toolkit powered by a Rust core. Use it to search markets, run technical scans, stream live order books, backtest strategies, and scaffold Python trading projects.
+- [Installation](https://auralshin.github.io/neleus/getting-started/installation/): Neleus currently requires the Rust extension. The CLI and Python package sit on top of the neleus_core module built from crates/pybridge.
+- [Quickstart](https://auralshin.github.io/neleus/getting-started/quickstart/): This page focuses on workflows that work before you create a project.
+- [CLI Overview](https://auralshin.github.io/neleus/cli/overview/): The CLI is split into two layers:
+- [Market Workflows](https://auralshin.github.io/neleus/cli/market/): The market command group is the main no-project surface of Neleus.
+- [Strategy Projects](https://auralshin.github.io/neleus/projects/): Create a project when you want to write Python strategy code on top of the Neleus Rust core.
+- [Writing Strategies](https://auralshin.github.io/neleus/strategy-writing/): This page shows how to write strategies that work with the current Neleus project workflow.
+- [Strategy Examples](https://auralshin.github.io/neleus/strategy-examples/): This page gives copy-pasteable examples for project strategies.
+- [Configuration](https://auralshin.github.io/neleus/configuration/): Projects use neleus.toml.
+- [Troubleshooting](https://auralshin.github.io/neleus/troubleshooting/): Symptoms:
+
+---
+
+## Neleus
+
+Canonical URL: https://auralshin.github.io/neleus/
+Markdown URL: https://raw.githubusercontent.com/auralshin/neleus/main/docs/index.md
+Source path: docs/index.md
+
+# Neleus
+
+<div class="hero">
+  <img src="assets/logo.png" alt="Neleus logo" />
+  <h1>Neleus</h1>
+  <p><em>Trade Hyperliquid from the terminal.</em></p>
+  <p>
+    Neleus is a Hyperliquid-first CLI and Python toolkit powered by a Rust core.
+    Use it to search markets, run technical scans, stream live order books,
+    backtest strategies, and scaffold Python trading projects.
+  </p>
+  <div class="hero-links">
+    <a href="getting-started/installation/">Get Started</a>
+    <a href="cli/market/">Market Workflows</a>
+    <a href="https://neleus.trade">Website</a>
+    <a href="https://github.com/auralshin/neleus">GitHub</a>
+  </div>
+</div>
+
+<div class="feature-grid">
+  <div class="feature-card">
+    <h3>No-project market tools</h3>
+    <p>Search, list, analyze, scan, and monitor Hyperliquid markets directly from the CLI.</p>
+  </div>
+  <div class="feature-card">
+    <h3>Rust-backed market core</h3>
+    <p>REST and WebSocket paths are driven by the Rust Hyperliquid adapter, then exposed to Python and the CLI.</p>
+  </div>
+  <div class="feature-card">
+    <h3>Python strategy workflow</h3>
+    <p>Scaffold a project, write strategies in Python, backtest them, and run them once or as a daemon.</p>
+  </div>
+  <div class="feature-card">
+    <h3>Terminal-first UX</h3>
+    <p>Rich dashboards, ranked scans, live order book views, and concise command-driven workflows.</p>
+  </div>
+</div>
+
+## What You Can Do Today
+
+| Workflow | Command | Result |
+| --- | --- | --- |
+| Search markets | `neleus market search BTC` | Find matching spot, default perp, or HIP-3 markets |
+| List market catalogs | `neleus market list --scope hip3 --dex xyz` | View market groups with counts and metadata |
+| Analyze a market | `neleus market analyze GAS --scope hip3 --dex flx` | Get RSI, trend, levels, volatility, and a directional read without typing the exact routed market id |
+| Scan setups | `neleus market scan --scope perps` | Rank a bounded market set by conviction-style TA score |
+| Stream live depth | `neleus market book flx:GAS-PERP` | Watch a live Hyperliquid L2 order book in the terminal, even when Hyperliquid needs an internal routed symbol |
+| Scaffold a project | `neleus new my_strategy_project` | Generate a Python strategy project wired to the Rust core |
+
+## Product Scope
+
+Implemented now:
+- market search, list, analysis, scanning, and live order book monitoring
+- project scaffolding for Python strategies
+- backtesting
+- one-shot and daemon strategy runtimes
+- database-backed runtime order/fill monitoring through `TradeMonitor`
+- database schema inspection and initialization through `neleus db status` and `neleus db init`
+
+Not implemented yet:
+- a dedicated `neleus trade` command separate from the current runtime/core APIs
+- broader live operations tooling beyond the current trade-monitoring path
+
+## Suggested Reading Order
+
+1. Start with [Installation](getting-started/installation.md)
+2. Run the no-project commands in [Quickstart](getting-started/quickstart.md)
+3. Learn the full market command surface in [Market Workflows](cli/market.md)
+4. Scaffold a project in [Strategy Projects](projects.md)
+5. Learn the actual strategy API in [Writing Strategies](strategy-writing.md)
+6. Copy and adapt code from [Strategy Examples](strategy-examples.md)
+
+
+---
+
+## Installation
+
+Canonical URL: https://auralshin.github.io/neleus/getting-started/installation/
+Markdown URL: https://raw.githubusercontent.com/auralshin/neleus/main/docs/getting-started/installation.md
+Source path: docs/getting-started/installation.md
+
+# Installation
+
+Neleus currently requires the Rust extension. The CLI and Python package sit on top of the `neleus_core` module built from `crates/pybridge`.
+
+## Requirements
+
+- Python 3.10+
+- Rust toolchain
+- `maturin`
+
+## Install From Source
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+
+pip install maturin
+cd python
+maturin develop --release
+pip install -e .
+```
+
+## Verify The Install
+
+```bash
+neleus about
+neleus market search BTC
+```
+
+If the Rust extension is missing, Neleus will fail early on import. Build the pybridge first, then reinstall the Python package.
+
+## Documentation Site
+
+This repository ships an MkDocs Material site under `docs/`.
+
+Run it locally:
+
+```bash
+pip install -r docs/requirements.txt
+mkdocs serve
+```
+
+Build static output:
+
+```bash
+mkdocs build
+```
+
+
+---
+
+## Quickstart
+
+Canonical URL: https://auralshin.github.io/neleus/getting-started/quickstart/
+Markdown URL: https://raw.githubusercontent.com/auralshin/neleus/main/docs/getting-started/quickstart.md
+Source path: docs/getting-started/quickstart.md
+
+# Quickstart
+
+This page focuses on workflows that work before you create a project.
+
+## No-Project Commands
+
+```bash
+neleus about
+neleus market search GAS --scope all-perps
+neleus market list --scope perps
+neleus market analyze GAS --scope hip3 --dex flx
+neleus market scan --scope perps
+neleus market book flx:GAS-PERP
+```
+
+If you only know the plain asset name for a HIP-3 market, use `--scope hip3 --dex <dex>`. Neleus resolves the market and routes the Hyperliquid request correctly.
+
+## Mainnet By Default
+
+The market-facing commands use Hyperliquid mainnet by default.
+
+Use testnet only when you need it:
+
+```bash
+neleus market search BTC --testnet
+```
+
+## Create A Strategy Project
+
+```bash
+neleus new my_strategy_project
+cd my_strategy_project
+```
+
+With PostgreSQL-backed trade monitoring enabled from the start:
+
+```bash
+neleus new my_strategy_project \
+  --db-backend postgres \
+  --db-dsn postgresql://user:password@localhost:5432/neleus \
+  --trade-monitoring
+
+cd my_strategy_project
+neleus db init
+```
+
+The scaffold writes the DSN into a local `.env` file and leaves
+`database.dsn = ""` in committed `neleus.toml`, so credentials do not need to
+live in source control.
+
+Generated layout:
+
+```text
+my_strategy_project/
+├── .gitignore
+├── .env                 # only created when --db-dsn is supplied
+├── neleus.toml
+├── .env.example
+├── main.py
+└── strategies/
+    ├── __init__.py
+    └── momentum.py
+```
+
+## Run A Backtest
+
+```bash
+neleus backtest --strategy momentum
+```
+
+## Run The Strategy Runtime
+
+One-shot:
+
+```bash
+neleus run --mode once --strategy momentum
+```
+
+Daemon:
+
+```bash
+neleus run --mode daemon --strategy momentum
+```
+
+## Database-Backed Trade Monitoring
+
+When your project has:
+
+- `database.backend = "postgres"` or `database.backend = "timescale"`
+- a configured DSN
+- `database.trade_monitoring = true`
+
+the project runtime will automatically connect to the database and record every generated order from:
+
+- `neleus run --mode once`
+- `neleus run --mode daemon`
+- `run_project_once(...)`
+- `run_project_daemon(...)`
+
+
+---
+
+## CLI Overview
+
+Canonical URL: https://auralshin.github.io/neleus/cli/overview/
+Markdown URL: https://raw.githubusercontent.com/auralshin/neleus/main/docs/cli/overview.md
+Source path: docs/cli/overview.md
+
+# CLI Overview
+
+The CLI is split into two layers:
+
+- Global market commands that work without a project
+- Project commands that operate on a directory containing `neleus.toml`
+
+## Global Commands
+
+| Command | Purpose |
+| --- | --- |
+| `neleus about` | Show branding, links, and a short command guide |
+| `neleus market search <query>` | Find markets by name across supported scopes |
+| `neleus market list` | Show market catalogs for perps, HIP-3, all-perps, or spot |
+| `neleus market analyze <symbol>` | Run single-market technical analysis, with optional `--scope` and `--dex` when you only know the plain symbol |
+| `neleus market scan` | Rank a bounded set of markets by scan score |
+| `neleus market book <symbol>` | Stream a live L2 order book in the terminal, including HIP-3 markets that need routed symbols |
+
+## Project Commands
+
+| Command | Purpose |
+| --- | --- |
+| `neleus new <name>` | Scaffold a new project, optionally with DB monitoring enabled |
+| `neleus init` | Initialize the current directory as a project |
+| `neleus backtest` | Run strategy backtests |
+| `neleus run --mode once|daemon` | Execute the runtime once or continuously |
+| `neleus strategy list|new|show` | Manage strategy source files |
+| `neleus db status` | Show the configured backend, DSN, pool size, and monitoring state |
+| `neleus db init` | Initialize the `hl_orders` / `hl_fills` schema and Timescale tables when applicable |
+| `neleus info` | Show project configuration and strategy discovery |
+
+## Current Limits
+
+- A dedicated `neleus trade` command is not exposed yet.
+- Database support currently focuses on runtime order/fill monitoring through `TradeMonitor`.
+- The TA scanner intentionally limits how many markets it scores per run so terminal use stays responsive.
+
+
+---
+
+## Market Workflows
+
+Canonical URL: https://auralshin.github.io/neleus/cli/market/
+Markdown URL: https://raw.githubusercontent.com/auralshin/neleus/main/docs/cli/market.md
+Source path: docs/cli/market.md
+
+# Market Workflows
+
+The market command group is the main no-project surface of Neleus.
+
+## Search Markets
+
+Use search when you know part of a market name but not the exact symbol.
+
+```bash
+neleus market search BTC
+neleus market search TSLA --scope hip3
+neleus market search GAS --scope all-perps
+neleus market search PURR --scope spot
+```
+
+Useful flags:
+
+- `--scope perps|hip3|all-perps|spot`
+- `--dex xyz`
+- `--output json`
+
+## List Market Catalogs
+
+Use list when you want counts, grouping, and a full market inventory.
+
+```bash
+neleus market list --scope perps
+neleus market list --scope hip3
+neleus market list --scope hip3 --dex xyz
+neleus market list --scope all-perps
+neleus market list --scope spot
+```
+
+## Analyze A Single Market
+
+```bash
+neleus market analyze BTC-PERP
+neleus market analyze GAS --scope hip3 --dex flx
+neleus market analyze TSLA --scope hip3 --dex xyz
+neleus market analyze ETH-PERP --timeframe 15m --lookback-bars 300
+neleus market analyze BTC-PERP --output json
+```
+
+For HIP-3 markets, prefer the plain asset name plus `--scope hip3 --dex <dex>` when you do not know the exact routed market id. Neleus resolves the market for you and uses the correct Hyperliquid request path internally.
+
+The analysis view includes:
+
+- last price
+- percentage change over the analyzed window
+- volatility estimate
+- RSI
+- SMA and EMA structure
+- Bollinger bands
+- support and resistance
+- directional bias and a short trading read
+
+## Run A TA Scan
+
+Use the scanner when you want ranked terminal output instead of one-off analysis.
+
+```bash
+neleus market scan --scope perps
+neleus market scan --scope hip3 --dex xyz --search TSLA
+neleus market scan --symbols BTC-PERP,ETH-PERP,SOL-PERP --sort score
+```
+
+Important flags:
+
+- `--scope perps|hip3|all-perps|spot`
+- `--symbols BTC-PERP,ETH-PERP,...`
+- `--search <text>`
+- `--max-markets <n>`
+- `--limit <n>`
+- `--sort score|change|volatility|rsi`
+- `--timeframe 1m|5m|15m|1h|4h|1d`
+
+The scanner is intentionally bounded. It is designed for fast terminal triage, not exhaustive exchange-wide screening in one command.
+
+## Watch A Live Order Book
+
+```bash
+neleus market book BTC-PERP
+neleus market book GAS --scope hip3 --dex flx
+neleus market book flx:GAS-PERP
+neleus market book HYPE-PERP --depth 15
+```
+
+The live view is backed by the Rust Hyperliquid WebSocket path and shows:
+
+- live bids and asks
+- best bid and ask
+- spread and spread in basis points
+- total displayed depth
+- order book imbalance
+
+For some HIP-3 markets, Hyperliquid expects a different internal market identifier for books than the display symbol. Neleus handles that automatically and tells you which routed symbol it used in the terminal footer when needed.
+
+Press `Ctrl+C` to stop streaming.
+
+## Hyperliquid API Model
+
+Current Neleus market workflows use Hyperliquid's public market-data surface:
+
+- `POST /info` for market metadata and candles
+- WebSocket subscriptions for live market streams
+
+These flows do not require API keys.
+
+
+---
+
+## Strategy Projects
+
+Canonical URL: https://auralshin.github.io/neleus/projects/
+Markdown URL: https://raw.githubusercontent.com/auralshin/neleus/main/docs/projects.md
+Source path: docs/projects.md
+
+# Strategy Projects
+
+Create a project when you want to write Python strategy code on top of the Neleus Rust core.
+
+This page covers:
+
+- how to scaffold a project
+- what files Neleus generates
+- the recommended workflow from scaffold to runtime
+- where strategy-specific config files live
+
+## Scaffold A New Project
+
+Create a new directory:
+
+```bash
+neleus new my_strategy_project
+cd my_strategy_project
+```
+
+Initialize the current directory instead:
+
+```bash
+mkdir my_strategy_project
+cd my_strategy_project
+neleus init
+```
+
+### Scaffold With Database Monitoring
+
+You can scaffold the database section directly from the CLI:
+
+```bash
+neleus new my_strategy_project \
+  --db-backend postgres \
+  --db-dsn postgresql://user:password@localhost:5432/neleus \
+  --trade-monitoring
+```
+
+If you pass `--db-dsn`, Neleus stores it in a local `.env` file and keeps
+`database.dsn = ""` in `neleus.toml` so credentials are not scaffolded into a
+committed config file.
+
+Supported `--db-backend` values:
+
+- `none`: leave persistence disabled
+- `postgres`: enable the PostgreSQL adapter
+- `timescale`: enable the TimescaleDB adapter
+
+## What Gets Generated
+
+The scaffolded project looks like this:
+
+```text
+my_strategy_project/
+├── .gitignore
+├── .env                 # only created when --db-dsn is supplied
+├── neleus.toml
+├── .env.example
+├── main.py
+└── strategies/
+    ├── __init__.py
+    └── momentum.py
+```
+
+### `neleus.toml`
+
+This is the project config. It holds:
+
+- project metadata
+- Hyperliquid network selection
+- default market symbol and timeframe
+- backtest parameters
+- runtime mode and polling interval
+- database adapter settings
+- trade-monitoring settings
+
+Scaffolded example:
+
+```toml
+[project]
+name = "my_strategy_project"
+version = "0.1.0"
+
+[hyperliquid]
+testnet = false
+
+[market]
+symbol = "BTC-PERP"
+timeframe = "1h"
+lookback_bars = 200
+
+[backtest]
+initial_capital = 10000.0
+maker_fee_bps = 2.0
+taker_fee_bps = 5.0
+slippage_bps = 5.0
+
+[runtime]
+mode = "once"
+poll_interval_seconds = 60
+
+[database]
+backend = "none"
+dsn = ""
+pool_size = 4
+batch_size = 1000
+flush_interval_ms = 100
+trade_monitoring = false
+```
+
+### `.env.example`
+
+This is where you document local overrides such as:
+
+- `HYPERLIQUID_TESTNET`
+- `NELEUS_DB_BACKEND`
+- `NELEUS_DB_DSN`
+
+If you scaffold with `--db-dsn`, Neleus also creates a local `.env` file and
+adds `.env` to the project `.gitignore`.
+
+### `main.py`
+
+The scaffold includes a simple Python entrypoint:
+
+```python
+from pathlib import Path
+
+from neleus.runtime import run_project_once
+
+
+if __name__ == "__main__":
+    result = run_project_once(Path(__file__).parent)
+    print(result.to_dict())
+```
+
+You can run that directly with `python main.py`, but the CLI is the primary workflow:
+
+```bash
+neleus run --mode once
+```
+
+### `strategies/momentum.py`
+
+This is your first strategy file. It shows the basic pattern:
+
+- subclass `Strategy`
+- keep your own state on `self`
+- react to `on_bar`
+- emit orders through `StrategyContext`
+
+## Recommended Project Workflow
+
+1. Scaffold the project with `neleus new`.
+2. If you enabled a database backend, initialize the schema:
+
+   ```bash
+   neleus db init
+   ```
+
+3. Inspect the generated strategy:
+
+   ```bash
+   neleus strategy list
+   neleus strategy show momentum
+   ```
+
+4. Edit `neleus.toml` to choose the market and timeframe you want.
+5. Edit the strategy file under `strategies/`.
+6. Backtest the strategy:
+
+   ```bash
+   neleus backtest --strategy momentum
+   ```
+
+7. Run the strategy once against recent market data:
+
+   ```bash
+   neleus run --mode once --strategy momentum
+   ```
+
+8. Run it continuously:
+
+   ```bash
+   neleus run --mode daemon --strategy momentum
+   ```
+
+## Add More Strategies
+
+Create a new strategy file:
+
+```bash
+neleus strategy new breakout
+```
+
+That creates:
+
+```text
+strategies/breakout.py
+```
+
+List discovered strategies:
+
+```bash
+neleus strategy list
+```
+
+Neleus discovers strategies from `strategies/*.py`, skipping files that start with `_`.
+
+## Strategy-Specific Config Files
+
+You can add an optional config file for a strategy under `configs/`.
+
+Example:
+
+```text
+my_strategy_project/
+├── configs/
+│   └── momentum.yaml
+└── strategies/
+    └── momentum.py
+```
+
+Example config:
+
+```yaml
+strategy:
+  enabled: true
+  class: MomentumStrategy
+  parameters:
+    lookback: 30
+```
+
+Important:
+
+- `neleus backtest` reads `configs/<strategy>.yaml` and passes `strategy.parameters` into the strategy constructor.
+- the current `neleus run` project runtime instantiates the strategy with no constructor arguments
+
+That means constructor parameters should have defaults if you want the same strategy to work in both backtests and the runtime.
+
+## Useful Project Commands
+
+```bash
+neleus strategy list
+neleus strategy new breakout
+neleus strategy show breakout
+neleus db status
+neleus db init
+neleus info
+neleus backtest --strategy breakout
+neleus run --mode once --strategy breakout
+neleus run --mode daemon --strategy breakout
+```
+
+## Database-Backed Trade Monitoring
+
+When a project has:
+
+- `database.backend = "postgres"` or `database.backend = "timescale"`
+- a configured `database.dsn`
+- `database.trade_monitoring = true`
+
+the runtime will automatically:
+
+1. create a `TradeMonitor` once at startup
+2. run your strategy normally
+3. drain generated order requests from each `StrategyContext`
+4. record each generated order to the configured database
+
+Each generated order is tagged with:
+
+- a UUID client order ID (`cloid`)
+- the project's `testnet` flag
+
+This applies to:
+
+- `neleus run --mode once`
+- `neleus run --mode daemon`
+- `run_project_once(...)`
+- `run_project_daemon(...)`
+
+The strategy code does not need any explicit DB calls for this flow.
+
+## What The Current Runtime Actually Does
+
+For project strategies, the current runtime flow is:
+
+1. load the strategy class from `strategies/<name>.py`
+2. instantiate it
+3. call `on_start(...)`
+4. fetch recent Hyperliquid candles
+5. convert each candle into a `Bar`
+6. call `on_bar(...)` and then `on_data(...)`
+7. drain any generated order requests
+8. if trade monitoring is enabled, record the generated orders through `TradeMonitor`
+9. call `on_stop(...)`
+
+That makes the current `neleus run` flow bar-driven and simple to reason about. It is useful for strategy development, but it is not yet a full live execution engine.
+
+For the actual strategy-writing API, continue to [Writing Strategies](strategy-writing.md).
+
+
+---
+
+## Writing Strategies
+
+Canonical URL: https://auralshin.github.io/neleus/strategy-writing/
+Markdown URL: https://raw.githubusercontent.com/auralshin/neleus/main/docs/strategy-writing.md
+Source path: docs/strategy-writing.md
+
+# Writing Strategies
+
+This page shows how to write strategies that work with the current Neleus project workflow.
+
+## The Core Pattern
+
+A Neleus strategy is a Python class that subclasses `Strategy`.
+
+Minimal example:
+
+```python
+from neleus import Bar, OrderSide, Strategy, StrategyContext
+
+
+class SimpleMomentumStrategy(Strategy):
+    def __init__(self, lookback: int = 20):
+        super().__init__("simple_momentum")
+        self.lookback = lookback
+        self.prices: list[float] = []
+
+    def on_bar(self, ctx: StrategyContext, bar: Bar) -> None:
+        self.prices.append(float(bar.close))
+        if len(self.prices) < self.lookback:
+            return
+
+        average_price = sum(self.prices[-self.lookback:]) / self.lookback
+        if bar.close > average_price * 1.01:
+            ctx.market_order(bar.instrument_id, OrderSide.Buy, 0.01)
+```
+
+## Strategy Lifecycle
+
+The base class lives in the Python package and exposes these main callbacks:
+
+- `on_start(ctx)`
+- `on_stop(ctx)`
+- `on_data(ctx, data)`
+- `on_bar(ctx, bar)`
+- `on_trade(ctx, trade)`
+- `on_quote(ctx, quote)`
+- `on_book(ctx, book)`
+
+For the current project runtime, the important ones are:
+
+- `on_start`
+- `on_bar`
+- `on_data`
+- `on_stop`
+
+## How `neleus run` Calls Your Strategy
+
+The current project runtime is bar-driven:
+
+1. it loads a `Strategy` subclass from `strategies/<name>.py`
+2. it instantiates the class with no constructor arguments
+3. it calls `on_start(...)`
+4. it fetches candles from Hyperliquid
+5. it converts each candle into a `Bar`
+6. it calls `on_bar(...)`
+7. it also calls `on_data(...)` with the same `Bar`
+8. it drains order requests from the context
+9. it calls `on_stop(...)`
+
+This matters for strategy authors:
+
+- keep persistent state on `self`, not in `StrategyContext`
+- give constructor parameters default values if you want `neleus run` to work
+- treat the current runtime as a signal/order-request generator over bars
+- when project trade monitoring is enabled, generated orders are recorded automatically after each `ctx.drain_order_requests()` call
+
+## Where Strategy State Should Live
+
+Good:
+
+```python
+self.prices.append(float(bar.close))
+self.in_position = True
+self.last_signal_ts = bar.timestamp_ns
+```
+
+Not good for the current project runtime:
+
+- assuming `StrategyContext` is persistent across bars
+- assuming `ctx.get_position(...)` is a reliable live portfolio source in `neleus run`
+
+The project runtime creates a fresh `StrategyContext` for each bar. Your strategy instance persists; the context does not.
+
+## Order APIs You Can Use
+
+The current order methods exposed through `StrategyContext` are:
+
+### Market order
+
+```python
+ctx.market_order(bar.instrument_id, OrderSide.Buy, 0.01)
+ctx.market_order(bar.instrument_id, OrderSide.Sell, 0.01, reduce_only=True)
+```
+
+### Limit order
+
+```python
+from neleus import TimeInForce
+
+ctx.limit_order(
+    bar.instrument_id,
+    OrderSide.Buy,
+    price=float(bar.close) * 0.995,
+    quantity=0.01,
+    time_in_force=TimeInForce.GTC,
+)
+```
+
+### Cancel order
+
+```python
+ctx.cancel_order(order_id)
+```
+
+### Subscribe methods
+
+These methods exist on `StrategyContext`:
+
+- `subscribe_trades(...)`
+- `subscribe_quotes(...)`
+- `subscribe_book(...)`
+
+But the current project runtime path is bar-driven and does not yet feed `on_trade`, `on_quote`, or `on_book` for `neleus run`.
+
+## What Happens To Generated Orders
+
+When your strategy calls:
+
+```python
+ctx.market_order(...)
+ctx.limit_order(...)
+```
+
+the runtime drains those order requests after each bar.
+
+If project trade monitoring is enabled, the runtime also:
+
+- creates a `TradeMonitor` once at startup
+- assigns a UUID `cloid` to each generated order
+- records the order into the configured database
+- tags the record with the runtime `testnet` flag
+
+That means strategy authors do not need explicit DB calls just to persist generated orders.
+
+## Use `bar.instrument_id`
+
+The simplest pattern is to reuse the instrument from the incoming bar:
+
+```python
+ctx.market_order(bar.instrument_id, OrderSide.Buy, 0.01)
+```
+
+That avoids constructing instrument IDs manually.
+
+## Example: Mean Reversion Strategy
+
+This example uses a simple rolling z-score style read from recent closes:
+
+```python
+from neleus import Bar, OrderSide, Strategy, StrategyContext
+
+
+class MeanReversionStrategy(Strategy):
+    def __init__(self, lookback: int = 20, entry_threshold: float = 0.02):
+        super().__init__("mean_reversion")
+        self.lookback = lookback
+        self.entry_threshold = entry_threshold
+        self.prices: list[float] = []
+        self.in_position = False
+
+    def on_bar(self, ctx: StrategyContext, bar: Bar) -> None:
+        close = float(bar.close)
+        self.prices.append(close)
+
+        if len(self.prices) < self.lookback:
+            return
+
+        window = self.prices[-self.lookback:]
+        average = sum(window) / len(window)
+        deviation = (close / average) - 1.0
+
+        if not self.in_position and deviation <= -self.entry_threshold:
+            ctx.market_order(bar.instrument_id, OrderSide.Buy, 0.01)
+            self.in_position = True
+            return
+
+        if self.in_position and close >= average:
+            ctx.market_order(bar.instrument_id, OrderSide.Sell, 0.01, reduce_only=True)
+            self.in_position = False
+```
+
+## Example: Breakout Strategy With Limit Orders
+
+```python
+from neleus import Bar, OrderSide, Strategy, StrategyContext, TimeInForce
+
+
+class BreakoutStrategy(Strategy):
+    def __init__(self, lookback: int = 30):
+        super().__init__("breakout")
+        self.lookback = lookback
+        self.highs: list[float] = []
+        self.lows: list[float] = []
+
+    def on_bar(self, ctx: StrategyContext, bar: Bar) -> None:
+        self.highs.append(float(bar.high))
+        self.lows.append(float(bar.low))
+
+        if len(self.highs) < self.lookback:
+            return
+
+        breakout_level = max(self.highs[-self.lookback:-1])
+        breakdown_level = min(self.lows[-self.lookback:-1])
+
+        if float(bar.close) > breakout_level:
+            ctx.limit_order(
+                bar.instrument_id,
+                OrderSide.Buy,
+                price=float(bar.close),
+                quantity=0.01,
+                time_in_force=TimeInForce.GTC,
+            )
+        elif float(bar.close) < breakdown_level:
+            ctx.limit_order(
+                bar.instrument_id,
+                OrderSide.Sell,
+                price=float(bar.close),
+                quantity=0.01,
+                time_in_force=TimeInForce.GTC,
+            )
+```
+
+## Constructor Defaults Matter
+
+The current project runtime calls your strategy like this:
+
+```python
+strategy = strategy_class()
+```
+
+So this is safe:
+
+```python
+def __init__(self, lookback: int = 20, threshold: float = 0.02):
+    ...
+```
+
+This will break `neleus run`:
+
+```python
+def __init__(self, lookback: int, threshold: float):
+    ...
+```
+
+If you want custom parameters in backtests, combine defaults with a strategy config file.
+
+## Strategy Config Example
+
+Create `configs/mean_reversion.yaml`:
+
+```yaml
+strategy:
+  enabled: true
+  class: MeanReversionStrategy
+  parameters:
+    lookback: 30
+    entry_threshold: 0.015
+```
+
+`neleus backtest` can use those parameters when it instantiates the strategy.
+
+## Practical Tips
+
+- start with one symbol and one timeframe
+- keep all persistent state on the strategy instance
+- use `bar.instrument_id` when placing orders
+- prefer constructors with defaults
+- backtest first, then run once, then run daemon mode
+- use `neleus strategy show <name>` to quickly inspect the active source
+
+For full code examples, continue to [Strategy Examples](strategy-examples.md).
+
+
+---
+
+## Strategy Examples
+
+Canonical URL: https://auralshin.github.io/neleus/strategy-examples/
+Markdown URL: https://raw.githubusercontent.com/auralshin/neleus/main/docs/strategy-examples.md
+Source path: docs/strategy-examples.md
+
+# Strategy Examples
+
+This page gives copy-pasteable examples for project strategies.
+
+## Example 1: Scaffolded Momentum Strategy
+
+This is the pattern generated by `neleus new`:
+
+```python
+from neleus import OrderSide, Strategy, StrategyContext, Bar
+
+
+class MomentumStrategy(Strategy):
+    def __init__(self, lookback: int = 20):
+        super().__init__("momentum")
+        self.lookback = lookback
+        self.prices: list[float] = []
+
+    def on_bar(self, ctx: StrategyContext, bar: Bar) -> None:
+        self.prices.append(float(bar.close))
+        if len(self.prices) < self.lookback:
+            return
+
+        window = self.prices[-self.lookback:]
+        baseline = sum(window[:-1]) / max(len(window) - 1, 1)
+        if bar.close > baseline * 1.01:
+            ctx.market_order(bar.instrument_id, OrderSide.Buy, 0.01)
+```
+
+Use it with:
+
+```bash
+neleus backtest --strategy momentum
+neleus run --mode once --strategy momentum
+```
+
+## Example 2: Long-Only Pullback Strategy
+
+```python
+from neleus import Bar, OrderSide, Strategy, StrategyContext
+
+
+class PullbackLongStrategy(Strategy):
+    def __init__(self, lookback: int = 25, pullback_pct: float = 0.015):
+        super().__init__("pullback_long")
+        self.lookback = lookback
+        self.pullback_pct = pullback_pct
+        self.prices: list[float] = []
+        self.in_position = False
+
+    def on_bar(self, ctx: StrategyContext, bar: Bar) -> None:
+        close = float(bar.close)
+        self.prices.append(close)
+
+        if len(self.prices) < self.lookback:
+            return
+
+        moving_average = sum(self.prices[-self.lookback:]) / self.lookback
+        drawdown_from_average = (close / moving_average) - 1.0
+
+        if not self.in_position and drawdown_from_average <= -self.pullback_pct:
+            ctx.market_order(bar.instrument_id, OrderSide.Buy, 0.01)
+            self.in_position = True
+            return
+
+        if self.in_position and close >= moving_average:
+            ctx.market_order(bar.instrument_id, OrderSide.Sell, 0.01, reduce_only=True)
+            self.in_position = False
+```
+
+## Example 3: Parameterized Strategy With Backtest Config
+
+Strategy file:
+
+```python
+from neleus import Bar, OrderSide, Strategy, StrategyContext
+
+
+class SlowMomentumStrategy(Strategy):
+    def __init__(self, lookback: int = 40, trigger_pct: float = 0.01):
+        super().__init__("slow_momentum")
+        self.lookback = lookback
+        self.trigger_pct = trigger_pct
+        self.prices: list[float] = []
+
+    def on_bar(self, ctx: StrategyContext, bar: Bar) -> None:
+        close = float(bar.close)
+        self.prices.append(close)
+        if len(self.prices) < self.lookback:
+            return
+
+        average = sum(self.prices[-self.lookback:]) / self.lookback
+        if close >= average * (1.0 + self.trigger_pct):
+            ctx.market_order(bar.instrument_id, OrderSide.Buy, 0.01)
+```
+
+Config file at `configs/slow_momentum.yaml`:
+
+```yaml
+strategy:
+  enabled: true
+  class: SlowMomentumStrategy
+  parameters:
+    lookback: 50
+    trigger_pct: 0.008
+```
+
+Run:
+
+```bash
+neleus backtest --strategy slow_momentum
+```
+
+## Example 4: Add A New Strategy With The CLI
+
+```bash
+neleus strategy new breakout
+```
+
+Then edit `strategies/breakout.py`, inspect it:
+
+```bash
+neleus strategy show breakout
+```
+
+And run it:
+
+```bash
+neleus backtest --strategy breakout
+neleus run --mode once --strategy breakout
+```
+
+## Suggested Development Loop
+
+1. Start from the scaffolded `momentum.py`
+2. Rename or create a new strategy with `neleus strategy new`
+3. Keep constructor parameters optional
+4. Backtest repeatedly
+5. Run once against recent data
+6. Move to daemon mode only after the bar-driven logic looks correct
+
+
+---
+
+## Configuration
+
+Canonical URL: https://auralshin.github.io/neleus/configuration/
+Markdown URL: https://raw.githubusercontent.com/auralshin/neleus/main/docs/configuration.md
+Source path: docs/configuration.md
+
+# Configuration
+
+Projects use `neleus.toml`.
+
+## Default Scaffold
+
+```toml
+[project]
+name = "my_strategy_project"
+version = "0.1.0"
+
+[hyperliquid]
+testnet = false
+
+[market]
+symbol = "BTC-PERP"
+timeframe = "1h"
+lookback_bars = 200
+
+[backtest]
+initial_capital = 10000.0
+maker_fee_bps = 2.0
+taker_fee_bps = 5.0
+slippage_bps = 5.0
+
+[runtime]
+mode = "once"
+poll_interval_seconds = 60
+
+[database]
+backend = "none"
+dsn = ""
+pool_size = 4
+batch_size = 1000
+flush_interval_ms = 100
+trade_monitoring = false
+```
+
+## Database Section
+
+The active persistence section is `[database]`.
+
+`database.backend` accepts these values:
+
+- `none`: disable persistence entirely
+- `postgres`: enable the PostgreSQL adapter
+- `timescale`: enable the TimescaleDB adapter
+
+Fields:
+
+- `backend`: persistence mode and adapter selection
+- `dsn`: PostgreSQL connection string
+- `pool_size`: connection pool size
+- `batch_size`: batch insert size for the Timescale path
+- `flush_interval_ms`: flush interval for the Timescale path
+- `trade_monitoring`: automatically record generated orders and fills via `TradeMonitor`
+
+Recommended secret handling:
+
+- keep `database.dsn = ""` in committed `neleus.toml`
+- set `NELEUS_DB_DSN` in a local `.env`
+- let the scaffolded `.gitignore` keep that `.env` file out of version control
+
+## Environment Variables
+
+```bash
+# Public Hyperliquid market data uses /info and does not need credentials.
+HYPERLIQUID_TESTNET=false
+
+# For future signed trading flows.
+# HYPERLIQUID_ACCOUNT_ADDRESS=0x...
+# HYPERLIQUID_SIGNER_PRIVATE_KEY=
+
+NELEUS_DB_BACKEND=postgres
+NELEUS_DB_DSN=
+```
+
+Currently supported DB-related environment overrides:
+
+- `NELEUS_DB_BACKEND`
+- `NELEUS_DB_DSN`
+- `NELEUS_DB_POOL_SIZE`
+
+## Scaffold With Database Monitoring
+
+```bash
+neleus new my_strategy_project \
+  --db-backend postgres \
+  --db-dsn postgresql://user:password@localhost:5432/neleus \
+  --trade-monitoring
+```
+
+When you pass `--db-dsn`, Neleus writes that value into a local `.env` file and
+keeps `database.dsn` empty in `neleus.toml`.
+
+Then initialize the schema:
+
+```bash
+cd my_strategy_project
+neleus db init
+```
+
+## Runtime Monitoring Behavior
+
+When `database.trade_monitoring = true` and a DSN is configured, the runtime:
+
+1. resolves a `DatabaseConfig` from project config and environment overrides
+2. creates a `TradeMonitor` once at startup
+3. records every generated order after `ctx.drain_order_requests()`
+
+Each generated order is stored with:
+
+- a UUID client order ID (`cloid`)
+- the project `testnet` flag
+
+## Python Config API
+
+The top-level package re-exports `DatabaseConfig` and `get_db_config`.
+
+```python
+from pathlib import Path
+
+from neleus import DatabaseConfig, get_db_config, load_project_config
+
+config = load_project_config(Path("neleus.toml"))
+db_cfg: DatabaseConfig = get_db_config(config)
+
+print(db_cfg.backend)
+print(db_cfg.trade_monitoring)
+print(db_cfg.dsn)
+```
+
+## Notes
+
+- Mainnet is the default.
+- The currently implemented CLI market workflows do not require signing credentials.
+- `neleus db status` checks the configured database connection for the current project.
+- `neleus db init` creates `hl_orders` / `hl_fills` through `TradeMonitor`.
+- for `timescale`, `neleus db init` also initializes the TimescaleDB market-data schema.
+
+
+---
+
+## Troubleshooting
+
+Canonical URL: https://auralshin.github.io/neleus/troubleshooting/
+Markdown URL: https://raw.githubusercontent.com/auralshin/neleus/main/docs/troubleshooting.md
+Source path: docs/troubleshooting.md
+
+# Troubleshooting
+
+## Rust Extension Missing
+
+Symptoms:
+
+- import errors mentioning `neleus_core`
+- the CLI fails immediately on startup
+
+Fix:
+
+```bash
+pip install maturin
+cd python
+maturin develop --release
+pip install -e .
+```
+
+## Missing Python Dependencies
+
+If you run the package without installing the Python dependencies, imports such as `yaml` can fail.
+
+Install the package dependencies:
+
+```bash
+pip install -e python/
+```
+
+## Hyperliquid Testnet Confusion
+
+The CLI defaults to Hyperliquid mainnet.
+
+Use `--testnet` only when you explicitly want the testnet market surface.
+
+## Scanner Is Not Exchange-Wide
+
+`market scan` is intentionally bounded with `--max-markets` so the CLI remains fast and useful.
+
+If you need a narrower focus:
+
+- use `--search`
+- use `--symbols`
+- use `--scope` and `--dex`
