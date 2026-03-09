@@ -220,6 +220,13 @@ def _apply_env_overrides(config: Dict[str, Any]) -> Dict[str, Any]:
         "NELEUS_DB_BACKEND": ("database", "backend", str),
         "NELEUS_DB_DSN": ("database", "dsn", str),
         "NELEUS_DB_POOL_SIZE": ("database", "pool_size", int),
+        "HYPERLIQUID_SIGNER_PRIVATE_KEY": ("hyperliquid", "signer_private_key", str),
+        "HYPERLIQUID_ACCOUNT_ADDRESS": ("hyperliquid", "account_address", str),
+        "HYPERLIQUID_TESTNET": (
+            "hyperliquid",
+            "testnet",
+            lambda v: v.strip().lower() in ("true", "1", "yes"),
+        ),
     }
 
     for env_key, (section, key, type_func) in env_mappings.items():
@@ -242,6 +249,19 @@ def get_db_config(config: Dict[str, Any]) -> "DatabaseConfig":
         flush_interval_ms=int(raw.get("flush_interval_ms", 100)),
         trade_monitoring=bool(raw.get("trade_monitoring", False)),
     )
+
+
+def get_hyperliquid_credentials(config: Dict[str, Any]) -> Dict[str, Optional[str]]:
+    """Return Hyperliquid credentials resolved from config then environment."""
+    raw = config.get("hyperliquid", {})
+    return {
+        "signer_private_key": str(raw["signer_private_key"])
+        if raw.get("signer_private_key")
+        else os.environ.get("HYPERLIQUID_SIGNER_PRIVATE_KEY"),
+        "account_address": str(raw["account_address"])
+        if raw.get("account_address")
+        else os.environ.get("HYPERLIQUID_ACCOUNT_ADDRESS"),
+    }
 
 
 def save_config(config: Dict[str, Any], config_path: Optional[Path] = None) -> None:
@@ -415,6 +435,7 @@ __all__ = [
     "validate_config",
     "discover_strategies",
     "get_db_config",
+    "get_hyperliquid_credentials",
     # Schema
     "CONFIG_SCHEMA",
 ]

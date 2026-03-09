@@ -23,7 +23,7 @@ from rich.syntax import Syntax
 
 from .. import __version__
 from ..backtest_runner import BacktestRunner
-from ..config import discover_strategies, get_db_config, load_project_config
+from ..config import discover_strategies, get_db_config, get_hyperliquid_credentials, load_project_config
 from ..market import (
     analyze_market,
     list_markets,
@@ -120,13 +120,14 @@ flush_interval_ms = 100
 trade_monitoring = {trade_monitoring}
 """,
     ".env.example": """# Hyperliquid
-# Public Hyperliquid market data uses the /info API and does not require credentials.
+# Public market data uses the /info API and does not require credentials.
 HYPERLIQUID_TESTNET=false
 
 # Signed trading actions use /exchange with a wallet or API-wallet signature.
-# These are not needed for market analysis or backtesting.
-# HYPERLIQUID_ACCOUNT_ADDRESS=0x...
-# HYPERLIQUID_SIGNER_PRIVATE_KEY=
+# Required for live order execution (neleus run --live).
+# Copy this file to .env and fill in your values — never commit .env.
+HYPERLIQUID_ACCOUNT_ADDRESS=0x...
+HYPERLIQUID_SIGNER_PRIVATE_KEY=0x...
 
 # Database adapter
 # Override the database.backend from neleus.toml
@@ -211,6 +212,8 @@ def create_project(
     db_backend: str = "none",
     db_dsn: str = "",
     trade_monitoring: bool = False,
+    private_key: str = "",
+    account_address: str = "",
 ) -> None:
     project_path.mkdir(parents=True, exist_ok=False)
     for relative_path, content in PROJECT_TEMPLATE.items():
@@ -226,30 +229,42 @@ def create_project(
             )
         )
 
-    _write_local_env(project_path, db_dsn)
+    _write_local_env(project_path, db_dsn=db_dsn, private_key=private_key, account_address=account_address)
 
 
-def _write_local_env(project_path: Path, db_dsn: str) -> None:
-    if not db_dsn:
+def _write_local_env(
+    project_path: Path,
+    db_dsn: str = "",
+    private_key: str = "",
+    account_address: str = "",
+) -> None:
+    """Write secrets to .env (never committed). Only writes non-empty values."""
+    lines: list[str] = []
+    if private_key:
+        lines.append(f"HYPERLIQUID_SIGNER_PRIVATE_KEY={private_key}\n")
+    if account_address:
+        lines.append(f"HYPERLIQUID_ACCOUNT_ADDRESS={account_address}\n")
+    if db_dsn:
+        lines.append(f"NELEUS_DB_DSN={db_dsn}\n")
+
+    if not lines:
         return
 
     env_path = project_path / ".env"
-    env_line = f"NELEUS_DB_DSN={db_dsn}\n"
-
     if env_path.exists():
         existing = env_path.read_text()
-        if "NELEUS_DB_DSN=" in existing:
-            return
         separator = "" if not existing or existing.endswith("\n") else "\n"
-        env_path.write_text(
-            f"{existing}{separator}# Local database credentials for Neleus.\n{env_line}"
-        )
+        additions = []
+        for line in lines:
+            key = line.split("=")[0]
+            if f"{key}=" not in existing:
+                additions.append(line)
+        if additions:
+            env_path.write_text(existing + separator + "".join(additions))
         return
 
     env_path.write_text(
-        "# Local database credentials for Neleus.\n"
-        "# Do not commit this file.\n"
-        f"{env_line}"
+        "# Local secrets — do not commit this file.\n" + "".join(lines)
     )
 
 
@@ -280,6 +295,18 @@ def new_project(
         "--trade-monitoring/--no-trade-monitoring",
         help="Enable automatic order/fill recording to the database.",
     ),
+    private_key: str = typer.Option(
+        "",
+        "--private-key",
+        help="Hyperliquid signer private key (hex). Written to .env, never to neleus.toml.",
+        envvar="HYPERLIQUID_SIGNER_PRIVATE_KEY",
+    ),
+    account_address: str = typer.Option(
+        "",
+        "--account-address",
+        help="Hyperliquid account/wallet address (0x...). Written to .env.",
+        envvar="HYPERLIQUID_ACCOUNT_ADDRESS",
+    ),
 ):
     """Create a new Neleus project.
 
@@ -288,11 +315,11 @@ def new_project(
     # Minimal (no database)
     neleus new my_bot
 
+    # With live trading credentials
+    neleus new my_bot --private-key 0xabc... --account-address 0xdef...
+
     # With PostgreSQL + trade monitoring
     neleus new my_bot --db-backend postgres --db-dsn postgresql://user:pass@localhost/neleus --trade-monitoring
-
-    # With TimescaleDB (market data hypertables)
-    neleus new my_bot --db-backend timescale --db-dsn postgresql://user:pass@localhost/neleus_ts
     """
     if db_backend not in ("none", "postgres", "timescale"):
         console.print(f"[red]--db-backend must be none, postgres, or timescale (got '{db_backend}')[/red]")
@@ -303,7 +330,11 @@ def new_project(
         console.print(f"[red]Directory already exists:[/red] {project_path}")
         raise typer.Exit(1)
 
-    create_project(project_path, name, db_backend=db_backend, db_dsn=db_dsn, trade_monitoring=trade_monitoring)
+    create_project(
+        project_path, name,
+        db_backend=db_backend, db_dsn=db_dsn, trade_monitoring=trade_monitoring,
+        private_key=private_key, account_address=account_address,
+    )
     console.print(render_project_created(name, db_backend=db_backend, trade_monitoring=trade_monitoring))
 
 
@@ -323,6 +354,18 @@ def init_project(
         False,
         "--trade-monitoring/--no-trade-monitoring",
         help="Enable automatic order/fill recording to the database.",
+    ),
+    private_key: str = typer.Option(
+        "",
+        "--private-key",
+        help="Hyperliquid signer private key (hex). Written to .env, never to neleus.toml.",
+        envvar="HYPERLIQUID_SIGNER_PRIVATE_KEY",
+    ),
+    account_address: str = typer.Option(
+        "",
+        "--account-address",
+        help="Hyperliquid account/wallet address (0x...). Written to .env.",
+        envvar="HYPERLIQUID_ACCOUNT_ADDRESS",
     ),
 ):
     """Initialize the current directory as a Neleus project."""
@@ -351,7 +394,7 @@ def init_project(
             )
         )
 
-    _write_local_env(project_root, db_dsn)
+    _write_local_env(project_root, db_dsn=db_dsn, private_key=private_key, account_address=account_address)
 
     console.print(render_project_created(project_root.name, initialized=True, db_backend=db_backend, trade_monitoring=trade_monitoring))
 
@@ -586,9 +629,29 @@ def run(
     lookback_bars: Optional[int] = typer.Option(None, "--lookback-bars", "-n"),
     interval_seconds: Optional[int] = typer.Option(None, "--interval-seconds", "-i"),
     testnet: Optional[bool] = typer.Option(None, "--testnet/--mainnet"),
+    live_trading: bool = typer.Option(
+        False,
+        "--live",
+        help="Execute orders on-chain via HyperliquidTrader. "
+             "Requires HYPERLIQUID_SIGNER_PRIVATE_KEY in .env or environment.",
+    ),
 ):
     """Run a project strategy once or keep it running in daemon mode."""
     project_root = ensure_project()
+
+    # Resolve private key when live trading is requested
+    private_key: Optional[str] = None
+    if live_trading:
+        project_config = load_project_config(project_root / CONFIG_FILE)
+        creds = get_hyperliquid_credentials(project_config)
+        private_key = creds.get("signer_private_key")
+        if not private_key:
+            console.print(
+                "[red]--live requires a private key.[/red] "
+                "Set HYPERLIQUID_SIGNER_PRIVATE_KEY in .env or pass --private-key to neleus new/init."
+            )
+            raise typer.Exit(1)
+        console.print("[yellow]Live trading enabled — real orders will be submitted.[/yellow]")
 
     if mode == "once":
         with console.status("[bold cyan]Running project once..."):
@@ -599,6 +662,7 @@ def run(
                 timeframe=timeframe,
                 lookback_bars=lookback_bars,
                 testnet=testnet,
+                private_key=private_key,
             )
         console.print(render_runtime_result(result, mode="once"))
         return
@@ -639,6 +703,7 @@ def run(
                     poll_interval_seconds=interval_seconds,
                     testnet=testnet,
                     on_iteration=_log_iteration,
+                    private_key=private_key,
                 )
             )
     except KeyboardInterrupt:

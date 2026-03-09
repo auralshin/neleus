@@ -1,6 +1,8 @@
 # Writing Strategies
 
-This page shows how to write strategies that work with the current Neleus project workflow.
+This page explains how to write strategies that work with the Neleus project runtime, what happens to the orders they generate, and how to use the live execution path.
+
+---
 
 ## The Core Pattern
 
@@ -28,66 +30,52 @@ class SimpleMomentumStrategy(Strategy):
             ctx.market_order(bar.instrument_id, OrderSide.Buy, 0.01)
 ```
 
+---
+
 ## Strategy Lifecycle
 
-The base class lives in the Python package and exposes these main callbacks:
+The base class exposes these callbacks:
 
-- `on_start(ctx)`
-- `on_stop(ctx)`
-- `on_data(ctx, data)`
-- `on_bar(ctx, bar)`
-- `on_trade(ctx, trade)`
-- `on_quote(ctx, quote)`
-- `on_book(ctx, book)`
+| Callback | When it is called |
+| --- | --- |
+| `on_start(ctx)` | Once at the beginning of a run, before any bars |
+| `on_bar(ctx, bar)` | For every `Bar` in the candle feed |
+| `on_data(ctx, data)` | Called with the same `Bar` immediately after `on_bar` |
+| `on_stop(ctx)` | Once at the end of a run, after all bars |
+| `on_trade(ctx, trade)` | Not yet fed by the bar-driven project runtime |
+| `on_quote(ctx, quote)` | Not yet fed by the bar-driven project runtime |
+| `on_book(ctx, book)` | Not yet fed by the bar-driven project runtime |
 
-For the current project runtime, the important ones are:
+For the current project runtime, implement `on_start`, `on_bar`, and `on_stop`.
 
-- `on_start`
-- `on_bar`
-- `on_data`
-- `on_stop`
+---
 
 ## How `neleus run` Calls Your Strategy
 
-The current project runtime is bar-driven:
+The runtime is bar-driven:
 
-1. it loads a `Strategy` subclass from `strategies/<name>.py`
-2. it instantiates the class with no constructor arguments
-3. it calls `on_start(...)`
-4. it fetches candles from Hyperliquid
-5. it converts each candle into a `Bar`
-6. it calls `on_bar(...)`
-7. it also calls `on_data(...)` with the same `Bar`
-8. it drains order requests from the context
-9. it calls `on_stop(...)`
+1. Loads the strategy class from `strategies/<name>.py`
+2. Instantiates it with no constructor arguments: `strategy_class()`
+3. Calls `on_start(ctx)`
+4. Fetches candles from Hyperliquid (count: `lookback_bars` from config)
+5. For each candle:
+   - Converts it to a `Bar`
+   - Calls `on_bar(ctx, bar)` then `on_data(ctx, bar)`
+   - Drains order requests from `ctx`
+   - **If `--live`:** submits each order to the exchange immediately
+   - If trade monitoring is enabled: records each order to the database
+6. Calls `on_stop(ctx)`
 
-This matters for strategy authors:
+Key implications for strategy authors:
 
-- keep persistent state on `self`, not in `StrategyContext`
-- give constructor parameters default values if you want `neleus run` to work
-- treat the current runtime as a signal/order-request generator over bars
-- when project trade monitoring is enabled, generated orders are recorded automatically after each `ctx.drain_order_requests()` call
+- All persistent state (price history, position flags) must live on `self`
+- Constructor parameters must have defaults — `neleus run` passes no arguments
+- A fresh `StrategyContext` is created per bar; do not cache context objects across bars
+- `ctx.get_position(...)` is not a reliable live portfolio source in the bar-driven runtime
 
-## Where Strategy State Should Live
+---
 
-Good:
-
-```python
-self.prices.append(float(bar.close))
-self.in_position = True
-self.last_signal_ts = bar.timestamp_ns
-```
-
-Not good for the current project runtime:
-
-- assuming `StrategyContext` is persistent across bars
-- assuming `ctx.get_position(...)` is a reliable live portfolio source in `neleus run`
-
-The project runtime creates a fresh `StrategyContext` for each bar. Your strategy instance persists; the context does not.
-
-## Order APIs You Can Use
-
-The current order methods exposed through `StrategyContext` are:
+## Order APIs
 
 ### Market order
 
@@ -95,6 +83,8 @@ The current order methods exposed through `StrategyContext` are:
 ctx.market_order(bar.instrument_id, OrderSide.Buy, 0.01)
 ctx.market_order(bar.instrument_id, OrderSide.Sell, 0.01, reduce_only=True)
 ```
+
+In live mode this becomes `place_market_order(coin, is_buy, size, slippage_bps=50)` — an IOC limit order placed at mid-price ± slippage to guarantee execution.
 
 ### Limit order
 
@@ -110,55 +100,100 @@ ctx.limit_order(
 )
 ```
 
+In live mode this becomes `place_limit_order(coin, is_buy, size, price, post_only=False, reduce_only=False)`.
+
 ### Cancel order
 
 ```python
 ctx.cancel_order(order_id)
 ```
 
-### Subscribe methods
-
-These methods exist on `StrategyContext`:
-
-- `subscribe_trades(...)`
-- `subscribe_quotes(...)`
-- `subscribe_book(...)`
-
-But the current project runtime path is bar-driven and does not yet feed `on_trade`, `on_quote`, or `on_book` for `neleus run`.
+---
 
 ## What Happens To Generated Orders
 
-When your strategy calls:
+When your strategy calls `ctx.market_order(...)` or `ctx.limit_order(...)`, the `OrderRequest` is queued inside the context object. After `on_bar` returns, the runtime drains those requests.
 
-```python
-ctx.market_order(...)
-ctx.limit_order(...)
+### Without `--live` (default)
+
+```text
+strategy.on_bar(ctx, bar)
+  → ctx.drain_order_requests()   → order_dicts
+  → _record_orders(monitor, ...) → written to DB (if trade monitoring is on)
+  → returned in RuntimeResult    → displayed in terminal
 ```
 
-the runtime drains those order requests after each bar.
+Orders are collected and displayed. Nothing touches the exchange.
 
-If project trade monitoring is enabled, the runtime also:
+### With `--live`
 
-- creates a `TradeMonitor` once at startup
-- assigns a UUID `cloid` to each generated order
-- records the order into the configured database
-- tags the record with the runtime `testnet` flag
+```text
+strategy.on_bar(ctx, bar)
+  → ctx.drain_order_requests()       → order_dicts
+  → _execute_orders(trader, ...)     → submitted to Hyperliquid /exchange
+  → _record_orders(monitor, ...)     → written to DB (if trade monitoring is on)
+  → returned in RuntimeResult        → displayed in terminal
+```
 
-That means strategy authors do not need explicit DB calls just to persist generated orders.
+`HyperliquidTrader` is created once at startup using `HYPERLIQUID_SIGNER_PRIVATE_KEY` from `.env`. Each order is signed with EIP-712 and POSTed to `/exchange`. The exchange response (order ID, fill status, rejection reason) is logged before the next bar is processed.
+
+If the exchange rejects an order, the error is logged and the runtime continues — a single rejection does not crash the strategy.
+
+---
+
+## Where Strategy State Should Live
+
+Good:
+
+```python
+self.prices.append(float(bar.close))
+self.in_position = True
+self.last_signal_ts = bar.timestamp_ns
+```
+
+Avoid assuming `StrategyContext` is persistent across bars. It is not — a new context is created per bar.
+
+---
 
 ## Use `bar.instrument_id`
 
-The simplest pattern is to reuse the instrument from the incoming bar:
+The simplest way to identify the instrument when placing orders is to reuse the ID from the incoming bar:
 
 ```python
 ctx.market_order(bar.instrument_id, OrderSide.Buy, 0.01)
 ```
 
-That avoids constructing instrument IDs manually.
+This avoids constructing `InstrumentId` objects manually.
+
+---
+
+## Constructor Defaults Are Required
+
+The project runtime calls your strategy with no arguments:
+
+```python
+strategy = strategy_class()
+```
+
+So this is safe:
+
+```python
+def __init__(self, lookback: int = 20, threshold: float = 0.02):
+    ...
+```
+
+This will break `neleus run`:
+
+```python
+def __init__(self, lookback: int, threshold: float):  # no defaults
+    ...
+```
+
+If you want custom parameters in backtests, combine defaults with a strategy config file (see [Projects](projects.md#strategy-specific-config-files)).
+
+---
 
 ## Example: Mean Reversion Strategy
-
-This example uses a simple rolling z-score style read from recent closes:
 
 ```python
 from neleus import Bar, OrderSide, Strategy, StrategyContext
@@ -192,6 +227,8 @@ class MeanReversionStrategy(Strategy):
             ctx.market_order(bar.instrument_id, OrderSide.Sell, 0.01, reduce_only=True)
             self.in_position = False
 ```
+
+---
 
 ## Example: Breakout Strategy With Limit Orders
 
@@ -234,52 +271,54 @@ class BreakoutStrategy(Strategy):
             )
 ```
 
-## Constructor Defaults Matter
+---
 
-The current project runtime calls your strategy like this:
-
-```python
-strategy = strategy_class()
-```
-
-So this is safe:
+## Example: Strategy With on_start and on_stop
 
 ```python
-def __init__(self, lookback: int = 20, threshold: float = 0.02):
-    ...
+import logging
+from neleus import Bar, OrderSide, Strategy, StrategyContext
+
+logger = logging.getLogger(__name__)
+
+
+class LoggingMomentumStrategy(Strategy):
+    def __init__(self, lookback: int = 20):
+        super().__init__("logging_momentum")
+        self.lookback = lookback
+        self.prices: list[float] = []
+        self.bars_processed = 0
+
+    def on_start(self, ctx: StrategyContext) -> None:
+        logger.info("Strategy starting, lookback=%d", self.lookback)
+
+    def on_bar(self, ctx: StrategyContext, bar: Bar) -> None:
+        self.prices.append(float(bar.close))
+        self.bars_processed += 1
+
+        if len(self.prices) < self.lookback:
+            return
+
+        average = sum(self.prices[-self.lookback:]) / self.lookback
+        if bar.close > average * 1.01:
+            ctx.market_order(bar.instrument_id, OrderSide.Buy, 0.01)
+            logger.info("BUY signal at %.4f (avg %.4f)", float(bar.close), average)
+
+    def on_stop(self, ctx: StrategyContext) -> None:
+        logger.info("Strategy stopped after %d bars", self.bars_processed)
 ```
 
-This will break `neleus run`:
-
-```python
-def __init__(self, lookback: int, threshold: float):
-    ...
-```
-
-If you want custom parameters in backtests, combine defaults with a strategy config file.
-
-## Strategy Config Example
-
-Create `configs/mean_reversion.yaml`:
-
-```yaml
-strategy:
-  enabled: true
-  class: MeanReversionStrategy
-  parameters:
-    lookback: 30
-    entry_threshold: 0.015
-```
-
-`neleus backtest` can use those parameters when it instantiates the strategy.
+---
 
 ## Practical Tips
 
-- start with one symbol and one timeframe
-- keep all persistent state on the strategy instance
-- use `bar.instrument_id` when placing orders
-- prefer constructors with defaults
-- backtest first, then run once, then run daemon mode
-- use `neleus strategy show <name>` to quickly inspect the active source
+- Start with one symbol and one timeframe
+- Use `bar.instrument_id` when placing orders — it's always correct for the active bar
+- Give all constructor parameters default values
+- Backtest first: `neleus backtest --strategy <name>`
+- Dry-run next: `neleus run --mode once` (no `--live`)
+- Test live on testnet: `neleus run --mode once --testnet --live`
+- Only go to mainnet after testnet works correctly
+- Use `neleus strategy show <name>` to quickly inspect source without leaving the terminal
 
-For full code examples, continue to [Strategy Examples](strategy-examples.md).
+For full strategy code examples, continue to [Strategy Examples](strategy-examples.md).

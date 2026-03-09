@@ -4,225 +4,326 @@ Create a project when you want to write Python strategy code on top of the Neleu
 
 This page covers:
 
-- how to scaffold a project
-- what files Neleus generates
-- the recommended workflow from scaffold to runtime
-- where strategy-specific config files live
+- how to scaffold a project with all supported options
+- what files Neleus generates and what each one does
+- the full recommended workflow from scaffold to live trading
+- strategy discovery and config files
+- the complete runtime execution flow
+
+---
 
 ## Scaffold A New Project
 
-Create a new directory:
+Create a new project directory:
 
 ```bash
-neleus new my_strategy_project
-cd my_strategy_project
+neleus new my_bot
+cd my_bot
 ```
 
 Initialize the current directory instead:
 
 ```bash
-mkdir my_strategy_project
-cd my_strategy_project
+mkdir my_bot
+cd my_bot
 neleus init
+```
+
+### Scaffold With Live Trading Credentials
+
+Pass credentials at creation time. They are written to `.env` and never touch `neleus.toml`:
+
+```bash
+neleus new my_bot \
+  --private-key 0xYOUR_PRIVATE_KEY \
+  --account-address 0xYOUR_WALLET_ADDRESS
+```
+
+Credentials can also be picked up from environment variables automatically — `neleus new` reads `HYPERLIQUID_SIGNER_PRIVATE_KEY` and `HYPERLIQUID_ACCOUNT_ADDRESS` if they are already set in the shell:
+
+```bash
+export HYPERLIQUID_SIGNER_PRIVATE_KEY=0xYOUR_PRIVATE_KEY
+export HYPERLIQUID_ACCOUNT_ADDRESS=0xYOUR_WALLET_ADDRESS
+neleus new my_bot    # writes them into .env automatically
 ```
 
 ### Scaffold With Database Monitoring
 
-You can scaffold the database section directly from the CLI:
-
 ```bash
-neleus new my_strategy_project \
+neleus new my_bot \
   --db-backend postgres \
   --db-dsn postgresql://user:password@localhost:5432/neleus \
   --trade-monitoring
 ```
 
-If you pass `--db-dsn`, Neleus stores it in a local `.env` file and keeps
-`database.dsn = ""` in `neleus.toml` so credentials are not scaffolded into a
-committed config file.
-
 Supported `--db-backend` values:
 
-- `none`: leave persistence disabled
-- `postgres`: enable the PostgreSQL adapter
-- `timescale`: enable the TimescaleDB adapter
+- `none` — no persistence (default)
+- `postgres` — PostgreSQL event store + trade monitoring (`hl_orders`, `hl_fills` tables)
+- `timescale` — TimescaleDB hypertables for market data + trade monitoring tables
+
+When `--db-dsn` is passed, Neleus stores the value in a local `.env` file and keeps `database.dsn = ""` in `neleus.toml` so credentials are not committed.
+
+### Scaffold With Everything
+
+```bash
+neleus new my_bot \
+  --private-key 0xYOUR_PRIVATE_KEY \
+  --account-address 0xYOUR_WALLET_ADDRESS \
+  --db-backend postgres \
+  --db-dsn postgresql://user:password@localhost:5432/neleus \
+  --trade-monitoring
+```
+
+Then initialize the DB schema:
+
+```bash
+cd my_bot
+neleus db init
+```
+
+---
 
 ## What Gets Generated
 
-The scaffolded project looks like this:
-
 ```text
-my_strategy_project/
-├── .gitignore
-├── .env                 # only created when --db-dsn is supplied
-├── neleus.toml
-├── .env.example
-├── main.py
+my_bot/
+├── .gitignore          # excludes .env and Python caches
+├── .env                # created when --private-key or --db-dsn is passed; never committed
+├── .env.example        # documents all supported env vars with placeholder values; safe to commit
+├── neleus.toml         # project config; credentials are never written here
+├── main.py             # simple Python entrypoint
 └── strategies/
     ├── __init__.py
-    └── momentum.py
+    └── momentum.py     # scaffold strategy
+```
+
+### `.gitignore`
+
+Excludes `.env` and Python bytecode caches. You do not need to configure this.
+
+### `.env`
+
+Created only when `--private-key`, `--account-address`, or `--db-dsn` is passed. Contains your actual secrets. **Never committed.**
+
+After scaffolding with credentials, `.env` looks like:
+
+```bash
+# Local secrets — do not commit this file.
+HYPERLIQUID_SIGNER_PRIVATE_KEY=0xabc123...
+HYPERLIQUID_ACCOUNT_ADDRESS=0xdef456...
+```
+
+You can edit this file at any time to add or change values.
+
+### `.env.example`
+
+Documents all supported environment variables with placeholder values. **Safe to commit.** Team members copy this to `.env` and fill in their own values.
+
+```bash
+HYPERLIQUID_TESTNET=false
+HYPERLIQUID_ACCOUNT_ADDRESS=0x...
+HYPERLIQUID_SIGNER_PRIVATE_KEY=0x...
+NELEUS_DB_BACKEND=none
+NELEUS_DB_DSN=
 ```
 
 ### `neleus.toml`
 
-This is the project config. It holds:
+The project configuration file. Contains:
 
-- project metadata
-- Hyperliquid network selection
-- default market symbol and timeframe
-- backtest parameters
-- runtime mode and polling interval
+- project metadata (`name`, `version`)
+- Hyperliquid network selection (`testnet = false`)
+- default market (`symbol`, `timeframe`, `lookback_bars`)
+- backtest cost parameters
+- runtime mode and poll interval
 - database adapter settings
-- trade-monitoring settings
 
-Scaffolded example:
-
-```toml
-[project]
-name = "my_strategy_project"
-version = "0.1.0"
-
-[hyperliquid]
-testnet = false
-
-[market]
-symbol = "BTC-PERP"
-timeframe = "1h"
-lookback_bars = 200
-
-[backtest]
-initial_capital = 10000.0
-maker_fee_bps = 2.0
-taker_fee_bps = 5.0
-slippage_bps = 5.0
-
-[runtime]
-mode = "once"
-poll_interval_seconds = 60
-
-[database]
-backend = "none"
-dsn = ""
-pool_size = 4
-batch_size = 1000
-flush_interval_ms = 100
-trade_monitoring = false
-```
-
-### `.env.example`
-
-This is where you document local overrides such as:
-
-- `HYPERLIQUID_TESTNET`
-- `NELEUS_DB_BACKEND`
-- `NELEUS_DB_DSN`
-
-If you scaffold with `--db-dsn`, Neleus also creates a local `.env` file and
-adds `.env` to the project `.gitignore`.
+Credentials are **never** written here. See [Configuration](configuration.md) for all available keys.
 
 ### `main.py`
 
-The scaffold includes a simple Python entrypoint:
+A Python entry point for running the strategy without the CLI:
 
 ```python
 from pathlib import Path
-
 from neleus.runtime import run_project_once
-
 
 if __name__ == "__main__":
     result = run_project_once(Path(__file__).parent)
     print(result.to_dict())
 ```
 
-You can run that directly with `python main.py`, but the CLI is the primary workflow:
+For live trading via Python directly:
 
-```bash
-neleus run --mode once
+```python
+import os
+from pathlib import Path
+from neleus.runtime import run_project_once
+
+result = run_project_once(
+    Path(__file__).parent,
+    private_key=os.environ["HYPERLIQUID_SIGNER_PRIVATE_KEY"],
+)
+print(result.to_dict())
 ```
 
 ### `strategies/momentum.py`
 
-This is your first strategy file. It shows the basic pattern:
+The scaffold strategy demonstrates the core pattern:
 
 - subclass `Strategy`
-- keep your own state on `self`
-- react to `on_bar`
-- emit orders through `StrategyContext`
+- keep rolling state (e.g. price history) on `self`
+- react to incoming `Bar` objects in `on_bar`
+- emit order signals through `StrategyContext`
+
+---
 
 ## Recommended Project Workflow
 
-1. Scaffold the project with `neleus new`.
-2. If you enabled a database backend, initialize the schema:
+### 1. Scaffold
 
-   ```bash
-   neleus db init
-   ```
+```bash
+neleus new my_bot --private-key 0x... --account-address 0x...
+cd my_bot
+```
 
-3. Inspect the generated strategy:
+### 2. If using a database, initialize the schema
 
-   ```bash
-   neleus strategy list
-   neleus strategy show momentum
-   ```
+```bash
+neleus db init
+neleus db status    # verify the connection is healthy
+```
 
-4. Edit `neleus.toml` to choose the market and timeframe you want.
-5. Edit the strategy file under `strategies/`.
-6. Backtest the strategy:
+### 3. Inspect and edit the strategy
 
-   ```bash
-   neleus backtest --strategy momentum
-   ```
+```bash
+neleus strategy list
+neleus strategy show momentum
+# edit strategies/momentum.py
+```
 
-7. Run the strategy once against recent market data:
+### 4. Configure the market in `neleus.toml`
 
-   ```bash
-   neleus run --mode once --strategy momentum
-   ```
+```toml
+[market]
+symbol = "ETH-PERP"
+timeframe = "15m"
+lookback_bars = 100
+```
 
-8. Run it continuously:
+### 5. Backtest first
 
-   ```bash
-   neleus run --mode daemon --strategy momentum
-   ```
+```bash
+neleus backtest --strategy momentum
+```
+
+### 6. Dry-run — see what orders the strategy would generate
+
+```bash
+neleus run --mode once --strategy momentum
+```
+
+This fetches real candles, runs the strategy, and prints the generated orders. Nothing is submitted to the exchange.
+
+### 7. Live run on testnet
+
+```bash
+neleus run --mode once --strategy momentum --testnet --live
+```
+
+With `--live`, `HyperliquidTrader` is instantiated with your private key from `.env`. Each order the strategy generates is signed and submitted to Hyperliquid's `/exchange` API.
+
+### 8. Live run on mainnet
+
+```bash
+neleus run --mode once --strategy momentum --live
+```
+
+### 9. Run continuously in daemon mode
+
+```bash
+neleus run --mode daemon --strategy momentum --live
+```
+
+The daemon polls every `poll_interval_seconds`, processes new candles, and executes any orders the strategy generates on each cycle.
+
+---
+
+## How `neleus run` Executes Your Strategy
+
+The runtime is bar-driven. On each cycle:
+
+1. Load the strategy class from `strategies/<name>.py`
+2. Instantiate it: `strategy_class()` — no constructor arguments are passed
+3. Call `strategy.on_start(ctx)`
+4. Fetch recent candles from Hyperliquid
+5. For each candle:
+   a. Convert the candle dict into a `Bar`
+   b. Call `strategy.on_bar(ctx, bar)` then `strategy.on_data(ctx, bar)`
+   c. Drain generated order requests via `ctx.drain_order_requests()`
+   d. **If `--live`:** submit each order to Hyperliquid via `HyperliquidTrader`
+   e. If trade monitoring is configured, record each order to the database
+6. Call `strategy.on_stop(ctx)`
+
+### Without `--live` (default, safe)
+
+Generated orders are collected, displayed in the terminal output, and optionally recorded to the database. Nothing is submitted to Hyperliquid. This is the right mode for strategy development and testing.
+
+### With `--live`
+
+`HyperliquidTrader` is created once at startup with the private key from `.env` or environment. For each order generated:
+
+- `market_order` call → `place_market_order(coin, is_buy, size, slippage_bps=50)`
+- `limit_order` call with a price → `place_limit_order(coin, is_buy, size, price, reduce_only)`
+
+The exchange response (order ID, fill status, any rejection message) is logged. If the exchange rejects an order, the error is logged and the strategy continues — a single rejected order does not stop the runtime.
+
+---
+
+## Live Trading Setup Checklist
+
+Before running `neleus run --live`:
+
+- [ ] `HYPERLIQUID_SIGNER_PRIVATE_KEY` is set in `.env`
+- [ ] `HYPERLIQUID_ACCOUNT_ADDRESS` is set in `.env`
+- [ ] Wallet has sufficient balance on the target network
+- [ ] `[hyperliquid] testnet = false` in `neleus.toml` for mainnet (or `true` for testnet)
+- [ ] Tested with `--testnet --live` first
+- [ ] Verified expected order behavior using `neleus run --mode once` (no `--live`)
+
+---
 
 ## Add More Strategies
-
-Create a new strategy file:
 
 ```bash
 neleus strategy new breakout
 ```
 
-That creates:
-
-```text
-strategies/breakout.py
-```
-
-List discovered strategies:
+Creates `strategies/breakout.py` with a strategy scaffold.
 
 ```bash
-neleus strategy list
+neleus strategy list    # show all discovered strategies
+neleus strategy show breakout  # print source
 ```
 
-Neleus discovers strategies from `strategies/*.py`, skipping files that start with `_`.
+Neleus discovers strategies from `strategies/*.py`. Files starting with `_` are skipped.
+
+---
 
 ## Strategy-Specific Config Files
 
-You can add an optional config file for a strategy under `configs/`.
-
-Example:
+Add optional config files under `configs/` for parameter control in backtests:
 
 ```text
-my_strategy_project/
+my_bot/
 ├── configs/
 │   └── momentum.yaml
 └── strategies/
     └── momentum.py
 ```
 
-Example config:
+`configs/momentum.yaml` example:
 
 ```yaml
 strategy:
@@ -232,70 +333,52 @@ strategy:
     lookback: 30
 ```
 
-Important:
+`neleus backtest` reads `configs/<strategy>.yaml` and passes `strategy.parameters` to the strategy constructor.
 
-- `neleus backtest` reads `configs/<strategy>.yaml` and passes `strategy.parameters` into the strategy constructor.
-- the current `neleus run` project runtime instantiates the strategy with no constructor arguments
+`neleus run` instantiates the strategy with no constructor arguments — so all constructor parameters need defaults.
 
-That means constructor parameters should have defaults if you want the same strategy to work in both backtests and the runtime.
+---
+
+## Database-Backed Trade Monitoring
+
+When `database.trade_monitoring = true` and a DSN is configured, the runtime automatically:
+
+1. Creates a `TradeMonitor` once at startup
+2. After each bar, assigns a UUID `cloid` to every generated order
+3. Records the order to `hl_orders` with the project `testnet` flag
+
+In live mode, execution happens before recording:
+
+- Order is submitted to Hyperliquid
+- Exchange response is logged (order ID, fill status)
+- Order record is written to the database
+
+The strategy does not need explicit DB calls.
+
+---
 
 ## Useful Project Commands
 
 ```bash
+# Project management
+neleus info
 neleus strategy list
 neleus strategy new breakout
 neleus strategy show breakout
+
+# Database
 neleus db status
 neleus db init
-neleus info
-neleus backtest --strategy breakout
-neleus run --mode once --strategy breakout
-neleus run --mode daemon --strategy breakout
+
+# Development (no execution)
+neleus backtest --strategy momentum
+neleus run --mode once --strategy momentum
+
+# Live on testnet
+neleus run --mode once  --strategy momentum --testnet --live
+neleus run --mode daemon --strategy momentum --testnet --live
+
+# Live on mainnet
+neleus run --mode once  --strategy momentum --live
+neleus run --mode daemon --strategy momentum --live
 ```
-
-## Database-Backed Trade Monitoring
-
-When a project has:
-
-- `database.backend = "postgres"` or `database.backend = "timescale"`
-- a configured `database.dsn`
-- `database.trade_monitoring = true`
-
-the runtime will automatically:
-
-1. create a `TradeMonitor` once at startup
-2. run your strategy normally
-3. drain generated order requests from each `StrategyContext`
-4. record each generated order to the configured database
-
-Each generated order is tagged with:
-
-- a UUID client order ID (`cloid`)
-- the project's `testnet` flag
-
-This applies to:
-
-- `neleus run --mode once`
-- `neleus run --mode daemon`
-- `run_project_once(...)`
-- `run_project_daemon(...)`
-
-The strategy code does not need any explicit DB calls for this flow.
-
-## What The Current Runtime Actually Does
-
-For project strategies, the current runtime flow is:
-
-1. load the strategy class from `strategies/<name>.py`
-2. instantiate it
-3. call `on_start(...)`
-4. fetch recent Hyperliquid candles
-5. convert each candle into a `Bar`
-6. call `on_bar(...)` and then `on_data(...)`
-7. drain any generated order requests
-8. if trade monitoring is enabled, record the generated orders through `TradeMonitor`
-9. call `on_stop(...)`
-
-That makes the current `neleus run` flow bar-driven and simple to reason about. It is useful for strategy development, but it is not yet a full live execution engine.
-
-For the actual strategy-writing API, continue to [Writing Strategies](strategy-writing.md).

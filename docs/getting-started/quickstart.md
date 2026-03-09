@@ -1,98 +1,188 @@
 # Quickstart
 
-This page focuses on workflows that work before you create a project.
+This page walks through the most common Neleus workflows, from zero-install market analysis to running a live strategy on Hyperliquid.
 
-## No-Project Commands
+---
+
+## Market Commands (No Project Required)
+
+These commands work immediately after installation, with no project setup needed:
 
 ```bash
-neleus about
-neleus market search GAS --scope all-perps
+# Search for any market by name
+neleus market search BTC --scope all-perps
+
+# List all perpetual markets
 neleus market list --scope perps
+
+# List HIP-3 markets on a specific DEX
+neleus market list --scope hip3 --dex flx
+
+# Analyze a single market with TA indicators
+neleus market analyze BTC-PERP --timeframe 1h --lookback-bars 200
+
+# Analyze a HIP-3 market using only the coin name
 neleus market analyze GAS --scope hip3 --dex flx
-neleus market scan --scope perps
-neleus market book flx:GAS-PERP
+
+# Rank markets by technical score
+neleus market scan --scope perps --max-markets 20
+
+# Stream a live L2 order book
+neleus market book BTC-PERP
+neleus market book flx:GAS-PERP     # HIP-3 market
 ```
 
-If you only know the plain asset name for a HIP-3 market, use `--scope hip3 --dex <dex>`. Neleus resolves the market and routes the Hyperliquid request correctly.
-
-## Mainnet By Default
-
-The market-facing commands use Hyperliquid mainnet by default.
-
-Use testnet only when you need it:
+All market commands default to Hyperliquid mainnet. Add `--testnet` to use testnet:
 
 ```bash
-neleus market search BTC --testnet
+neleus market analyze BTC-PERP --testnet
 ```
 
-## Create A Strategy Project
+---
+
+## Create A Project
+
+A project is a directory containing `neleus.toml`, one or more strategy files, and optionally a `.env` file with credentials.
+
+### Minimal project
 
 ```bash
-neleus new my_strategy_project
-cd my_strategy_project
+neleus new my_bot
+cd my_bot
 ```
 
-With PostgreSQL-backed trade monitoring enabled from the start:
+### With live trading credentials
 
 ```bash
-neleus new my_strategy_project \
+neleus new my_bot \
+  --private-key 0xYOUR_PRIVATE_KEY \
+  --account-address 0xYOUR_WALLET_ADDRESS
+cd my_bot
+```
+
+The keys are written to `.env` only — never to `neleus.toml`.
+
+### With database monitoring
+
+```bash
+neleus new my_bot \
   --db-backend postgres \
   --db-dsn postgresql://user:password@localhost:5432/neleus \
   --trade-monitoring
-
-cd my_strategy_project
+cd my_bot
 neleus db init
 ```
 
-The scaffold writes the DSN into a local `.env` file and leaves
-`database.dsn = ""` in committed `neleus.toml`, so credentials do not need to
-live in source control.
+### With credentials and database
 
-Generated layout:
-
-```text
-my_strategy_project/
-├── .gitignore
-├── .env                 # only created when --db-dsn is supplied
-├── neleus.toml
-├── .env.example
-├── main.py
-└── strategies/
-    ├── __init__.py
-    └── momentum.py
+```bash
+neleus new my_bot \
+  --private-key 0xYOUR_PRIVATE_KEY \
+  --account-address 0xYOUR_WALLET_ADDRESS \
+  --db-backend postgres \
+  --db-dsn postgresql://user:password@localhost:5432/neleus \
+  --trade-monitoring
+cd my_bot
+neleus db init
 ```
 
-## Run A Backtest
+---
+
+## Backtest A Strategy
 
 ```bash
 neleus backtest --strategy momentum
 ```
 
-## Run The Strategy Runtime
+Fetches Hyperliquid candles and runs the strategy through the Rust backtest engine. No credentials needed.
 
-One-shot:
+---
+
+## Run The Strategy (Paper Mode)
+
+Fetch real market data and see what orders the strategy would generate — without submitting anything to the exchange:
 
 ```bash
+# One-shot
 neleus run --mode once --strategy momentum
-```
 
-Daemon:
-
-```bash
+# Daemon (polls every poll_interval_seconds)
 neleus run --mode daemon --strategy momentum
 ```
 
+This is the safe development mode. Use it to verify your strategy logic before going live.
+
+---
+
+## Run The Strategy Live
+
+`--live` activates real order execution via `HyperliquidTrader`. The private key is read from `.env` or the `HYPERLIQUID_SIGNER_PRIVATE_KEY` environment variable.
+
+### Always test on testnet first
+
+```bash
+neleus run --mode once --strategy momentum --testnet --live
+```
+
+Make sure your testnet wallet has funds. Hyperliquid testnet faucet: [https://app.hyperliquid-testnet.xyz/drip](https://app.hyperliquid-testnet.xyz/drip)
+
+### Run live on mainnet — one shot
+
+```bash
+neleus run --mode once --strategy momentum --live
+```
+
+### Run live on mainnet — continuous
+
+```bash
+neleus run --mode daemon --strategy momentum --live
+```
+
+The daemon polls for new candles every `poll_interval_seconds` (default 60). Each time the strategy emits an order, it is submitted to Hyperliquid immediately.
+
+---
+
+## Set Up Credentials After Scaffolding
+
+If you created the project without `--private-key`, set credentials manually:
+
+```bash
+cp .env.example .env
+# then edit .env:
+HYPERLIQUID_SIGNER_PRIVATE_KEY=0xYourKey
+HYPERLIQUID_ACCOUNT_ADDRESS=0xYourAddress
+HYPERLIQUID_TESTNET=false
+```
+
+Or export them in your shell:
+
+```bash
+export HYPERLIQUID_SIGNER_PRIVATE_KEY=0xYourKey
+neleus run --mode once --live
+```
+
+---
+
 ## Database-Backed Trade Monitoring
 
-When your project has:
+When your project has `database.trade_monitoring = true` and a valid DSN, every order generated by the strategy is automatically recorded to the `hl_orders` table — no strategy-level code changes required.
 
-- `database.backend = "postgres"` or `database.backend = "timescale"`
-- a configured DSN
-- `database.trade_monitoring = true`
+```bash
+# Check the database connection
+neleus db status
 
-the project runtime will automatically connect to the database and record every generated order from:
+# Initialize or upgrade the schema
+neleus db init
+```
 
-- `neleus run --mode once`
-- `neleus run --mode daemon`
-- `run_project_once(...)`
-- `run_project_daemon(...)`
+In live mode, orders are submitted to the exchange first, then recorded to the database.
+
+---
+
+## Inspect Your Project
+
+```bash
+neleus info              # show config, strategies, DB status
+neleus strategy list     # list discovered strategies
+neleus strategy show momentum   # print strategy source
+```

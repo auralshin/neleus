@@ -85,6 +85,54 @@ def _make_trade_monitor(db_cfg: Any, testnet: bool) -> Optional["TradeMonitor"]:
     return None
 
 
+def _make_trader(private_key: Optional[str], testnet: bool) -> Optional[Any]:
+    """Instantiate HyperliquidTrader when a private key is provided."""
+    if not private_key:
+        return None
+    from .types import HyperliquidTrader
+    return HyperliquidTrader(private_key, testnet=testnet)
+
+
+def _execute_orders(
+    trader: Optional[Any],
+    order_dicts: List[Dict[str, Any]],
+    slippage_bps: int = 50,
+) -> None:
+    """Submit orders to the exchange. Logs errors but does not raise."""
+    if trader is None:
+        return
+    for order in order_dicts:
+        coin = order.get("instrument", "")
+        side_str = str(order.get("side", "")).lower()
+        is_buy = "buy" in side_str
+        order_type_str = str(order.get("order_type", "")).lower()
+        size = float(order.get("quantity", 0))
+        price = order.get("price")
+        reduce_only = bool(order.get("reduce_only", False))
+
+        try:
+            if "market" in order_type_str or price is None:
+                result = trader.place_market_order(coin, is_buy, size, slippage_bps)
+            else:
+                result = trader.place_limit_order(
+                    coin, is_buy, size, float(price), False, reduce_only
+                )
+            if result.error:
+                logger.warning("Order rejected by exchange: %s", result.error)
+            else:
+                logger.info(
+                    "Order submitted: %s %s %s size=%s order_id=%s filled=%s",
+                    "BUY" if is_buy else "SELL",
+                    coin,
+                    order_type_str,
+                    size,
+                    result.order_id,
+                    result.filled,
+                )
+        except Exception as exc:
+            logger.error("Order execution failed for %s: %s", coin, exc)
+
+
 def _record_orders(monitor: Optional["TradeMonitor"], order_dicts: List[Dict[str, Any]]) -> None:
     if monitor is None:
         return
@@ -168,6 +216,7 @@ def run_project_once(
     timeframe: Optional[str] = None,
     lookback_bars: Optional[int] = None,
     testnet: Optional[bool] = None,
+    private_key: Optional[str] = None,
 ) -> RuntimeResult:
     defaults = _resolve_runtime_defaults(project_path)
     symbol = symbol or defaults["symbol"]
@@ -175,7 +224,8 @@ def run_project_once(
     lookback_bars = lookback_bars or defaults["lookback_bars"]
     testnet = defaults["testnet"] if testnet is None else testnet
 
-    monitor = _make_trade_monitor(defaults["db_cfg"], testnet)
+    monitor = _make_trade_monitor(defaults["db_cfg"], testnet)  # type: ignore[arg-type]
+    trader = _make_trader(private_key, testnet)  # type: ignore[arg-type]
 
     strategy_class = load_strategy_class(project_path, strategy_name)
     strategy = strategy_class()
@@ -185,20 +235,21 @@ def run_project_once(
     strategy.on_start(bootstrap_ctx)
 
     candles = fetch_market_candles(
-        symbol=symbol,
-        timeframe=timeframe,
-        lookback_bars=lookback_bars,
-        testnet=testnet,
+        symbol=symbol,  # type: ignore[arg-type]
+        timeframe=timeframe,  # type: ignore[arg-type]
+        lookback_bars=lookback_bars,  # type: ignore[arg-type]
+        testnet=testnet,  # type: ignore[arg-type]
     )
 
     generated_orders: List[Dict[str, Any]] = []
     for candle in candles:
-        bar = _bar_from_candle(symbol, candle)
+        bar = _bar_from_candle(symbol, candle)  # type: ignore[arg-type]
         ctx = StrategyContext(bar.timestamp_ns)
         strategy.on_bar(ctx, bar)
         if hasattr(strategy, "on_data"):
             strategy.on_data(ctx, bar)
         order_dicts = _orders_to_dicts(ctx.drain_order_requests())
+        _execute_orders(trader, order_dicts)
         _record_orders(monitor, order_dicts)
         generated_orders.extend(order_dicts)
 
@@ -207,8 +258,8 @@ def run_project_once(
 
     return RuntimeResult(
         strategy=strategy.__class__.__name__,
-        symbol=symbol,
-        timeframe=timeframe,
+        symbol=symbol,  # type: ignore[arg-type]
+        timeframe=timeframe,  # type: ignore[arg-type]
         candles_processed=len(candles),
         last_price=float(candles[-1]["close"]) if candles else 0.0,
         generated_orders=generated_orders,
@@ -226,6 +277,7 @@ async def run_project_daemon(
     poll_interval_seconds: Optional[int] = None,
     testnet: Optional[bool] = None,
     on_iteration: Optional[Any] = None,
+    private_key: Optional[str] = None,
 ) -> None:
     defaults = _resolve_runtime_defaults(project_path)
     symbol = symbol or defaults["symbol"]
@@ -234,7 +286,8 @@ async def run_project_daemon(
     poll_interval_seconds = poll_interval_seconds or defaults["poll_interval_seconds"]
     testnet = defaults["testnet"] if testnet is None else testnet
 
-    monitor = _make_trade_monitor(defaults["db_cfg"], testnet)
+    monitor = _make_trade_monitor(defaults["db_cfg"], testnet)  # type: ignore[arg-type]
+    trader = _make_trader(private_key, testnet)  # type: ignore[arg-type]
 
     strategy_class = load_strategy_class(project_path, strategy_name)
     strategy = strategy_class()
@@ -246,29 +299,30 @@ async def run_project_daemon(
     try:
         while True:
             candles = fetch_market_candles(
-                symbol=symbol,
-                timeframe=timeframe,
-                lookback_bars=lookback_bars,
-                testnet=testnet,
+                symbol=symbol,  # type: ignore[arg-type]
+                timeframe=timeframe,  # type: ignore[arg-type]
+                lookback_bars=lookback_bars,  # type: ignore[arg-type]
+                testnet=testnet,  # type: ignore[arg-type]
             )
             new_candles = [candle for candle in candles if candle["timestamp"] not in seen_timestamps]
 
             for candle in new_candles:
                 seen_timestamps.add(candle["timestamp"])
-                bar = _bar_from_candle(symbol, candle)
+                bar = _bar_from_candle(symbol, candle)  # type: ignore[arg-type]
                 ctx = StrategyContext(bar.timestamp_ns)
                 strategy.on_bar(ctx, bar)
                 if hasattr(strategy, "on_data"):
                     strategy.on_data(ctx, bar)
 
                 order_dicts = _orders_to_dicts(ctx.drain_order_requests())
+                _execute_orders(trader, order_dicts)
                 _record_orders(monitor, order_dicts)
 
                 if on_iteration is not None:
                     result = RuntimeResult(
                         strategy=strategy.__class__.__name__,
-                        symbol=symbol,
-                        timeframe=timeframe,
+                        symbol=symbol,  # type: ignore[arg-type]
+                        timeframe=timeframe,  # type: ignore[arg-type]
                         candles_processed=1,
                         last_price=float(candle["close"]),
                         generated_orders=order_dicts,
@@ -279,7 +333,7 @@ async def run_project_daemon(
                     if asyncio.iscoroutine(maybe_coro):
                         await maybe_coro
 
-            await asyncio.sleep(poll_interval_seconds)
+            await asyncio.sleep(poll_interval_seconds)  # type: ignore[arg-type]
     finally:
         shutdown_ctx = StrategyContext(int(datetime.now(timezone.utc).timestamp() * 1_000_000_000))
         strategy.on_stop(shutdown_ctx)
