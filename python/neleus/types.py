@@ -62,6 +62,14 @@ if TYPE_CHECKING:
     DbFillRecord: Any
     PnlSummary: Any
     TradeMonitor: Any
+    PolymarketClient: Any
+    PolymarketMarket: Any
+    PolymarketBookLevel: Any
+    PolymarketBook: Any
+    PolymarketTrade: Any
+    PolymarketOrder: Any
+    PolymarketPosition: Any
+    PolymarketTrader: Any
     rust_version: Any
 
 
@@ -141,6 +149,15 @@ try:
         DbFillRecord,
         PnlSummary,
         TradeMonitor,
+        # Polymarket
+        PolymarketClient,
+        PolymarketMarket,
+        PolymarketBookLevel,
+        PolymarketBook,
+        PolymarketTrade,
+        PolymarketOrder,
+        PolymarketPosition,
+        PolymarketTrader,
         # Functions
         version as rust_version,
     )
@@ -217,6 +234,15 @@ except ImportError as e:
             DbFillRecord,
             PnlSummary,
             TradeMonitor,
+            # Polymarket
+            PolymarketClient,
+            PolymarketMarket,
+            PolymarketBookLevel,
+            PolymarketBook,
+            PolymarketTrade,
+            PolymarketOrder,
+            PolymarketPosition,
+            PolymarketTrader,
             # Functions
             version as rust_version,
         )
@@ -321,6 +347,15 @@ __all__ = [
     "DbFillRecord",
     "PnlSummary",
     "TradeMonitor",
+    # Polymarket
+    "PolymarketClient",
+    "PolymarketMarket",
+    "PolymarketBookLevel",
+    "PolymarketBook",
+    "PolymarketTrade",
+    "PolymarketOrder",
+    "PolymarketPosition",
+    "PolymarketTrader",
     # Utils
     "using_rust_types",
 ]

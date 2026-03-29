@@ -886,3 +886,218 @@ class DaemonDashboard:
             Layout(orders_panel, name="right", ratio=3),
         )
         return layout
+
+
+# ---------------------------------------------------------------------------
+# Hyperliquid live-trading renderers
+# ---------------------------------------------------------------------------
+
+def render_hl_orders(orders: List[Any]) -> Group:
+    table = Table(title="Open Orders — Hyperliquid", box=box.ROUNDED, expand=True)
+    table.add_column("Order ID", style="cyan", no_wrap=True)
+    table.add_column("Coin", style="bold")
+    table.add_column("Side", justify="center")
+    table.add_column("Size", justify="right")
+    table.add_column("Filled", justify="right", style="dim")
+    table.add_column("Price", justify="right")
+    table.add_column("Status", justify="center")
+    table.add_column("Time (UTC)", style="dim")
+
+    for o in orders:
+        side_style = "green" if getattr(o, "side", "").lower() == "buy" else "red"
+        table.add_row(
+            str(getattr(o, "order_id", "-")),
+            getattr(o, "coin", "-"),
+            Text(getattr(o, "side", "-").upper(), style=side_style),
+            f"{getattr(o, 'size', 0):.6g}",
+            f"{getattr(o, 'filled_size', 0):.6g}",
+            _format_price(float(getattr(o, "price", 0))),
+            getattr(o, "status", "-"),
+            _format_epoch_ms(getattr(o, "timestamp_ms", 0)),
+        )
+
+    if not orders:
+        table.add_row("-", "-", "-", "-", "-", "-", "-", "-")
+
+    return Group(table)
+
+
+def render_hl_fills(fills: List[Any]) -> Group:
+    table = Table(title="Recent Fills — Hyperliquid", box=box.ROUNDED, expand=True)
+    table.add_column("Order ID", style="cyan", no_wrap=True)
+    table.add_column("Coin", style="bold")
+    table.add_column("Side", justify="center")
+    table.add_column("Size", justify="right")
+    table.add_column("Price", justify="right")
+    table.add_column("Fee", justify="right", style="dim")
+    table.add_column("Time (UTC)", style="dim")
+
+    for f in fills:
+        side_style = "green" if getattr(f, "side", "").lower() == "buy" else "red"
+        table.add_row(
+            str(getattr(f, "order_id", "-")),
+            getattr(f, "coin", "-"),
+            Text(getattr(f, "side", "-").upper(), style=side_style),
+            f"{getattr(f, 'size', 0):.6g}",
+            _format_price(float(getattr(f, "price", 0))),
+            f"{getattr(f, 'fee', 0):.6g}",
+            _format_epoch_ms(getattr(f, "timestamp_ms", 0)),
+        )
+
+    if not fills:
+        table.add_row("-", "-", "-", "-", "-", "-", "-")
+
+    return Group(table)
+
+
+def render_hl_order_result(result: Any, action: str = "Order") -> Group:
+    status = getattr(result, "status", "unknown")
+    color = "green" if status == "ok" else "red"
+    rows = [
+        ("Status", status),
+        ("Order ID", str(getattr(result, "order_id", "-") or "-")),
+        ("Client OID", str(getattr(result, "cloid", "-") or "-")),
+        ("Error", str(getattr(result, "error", "") or "")),
+    ]
+    return Group(
+        Panel(
+            _kv_table(action, rows),
+            title=f"[{color}]{action}[/{color}]",
+            border_style=color,
+        )
+    )
+
+
+# ---------------------------------------------------------------------------
+# Polymarket renderers
+# ---------------------------------------------------------------------------
+
+def render_poly_markets(markets: List[Any]) -> Group:
+    table = Table(title="Polymarket Markets", box=box.ROUNDED, expand=True)
+    table.add_column("Token ID", style="cyan", no_wrap=True, max_width=20)
+    table.add_column("Slug", style="bold", max_width=30)
+    table.add_column("Question", max_width=50)
+    table.add_column("Active", justify="center")
+    table.add_column("Volume", justify="right", style="dim")
+
+    for m in markets:
+        active = getattr(m, "active", False)
+        table.add_row(
+            getattr(m, "token_id", "-")[:18] + "..",
+            getattr(m, "market_slug", "-"),
+            getattr(m, "question", "-"),
+            "[green]yes[/green]" if active else "[dim]no[/dim]",
+            getattr(m, "volume", "-") or "-",
+        )
+
+    if not markets:
+        table.add_row("-", "-", "-", "-", "-")
+
+    return Group(table)
+
+
+def render_poly_book(book: Any) -> Group:
+    bids = getattr(book, "bids", [])
+    asks = getattr(book, "asks", [])
+
+    bid_table = Table(title="Bids", box=box.SIMPLE, expand=True)
+    bid_table.add_column("Price", justify="right", style="green")
+    bid_table.add_column("Size", justify="right")
+    for level in bids[:15]:
+        bid_table.add_row(getattr(level, "price", "-"), getattr(level, "size", "-"))
+
+    ask_table = Table(title="Asks", box=box.SIMPLE, expand=True)
+    ask_table.add_column("Price", justify="right", style="red")
+    ask_table.add_column("Size", justify="right")
+    for level in asks[:15]:
+        ask_table.add_row(getattr(level, "price", "-"), getattr(level, "size", "-"))
+
+    header = [
+        ("Market", getattr(book, "market", "-")),
+        ("Asset ID", getattr(book, "asset_id", "-")),
+        ("Timestamp", getattr(book, "timestamp", "-")),
+    ]
+    return Group(
+        _kv_table("Book", header),
+        Columns([bid_table, ask_table], expand=True),
+    )
+
+
+def render_poly_trades(trades: List[Any]) -> Group:
+    table = Table(title="Recent Trades — Polymarket", box=box.ROUNDED, expand=True)
+    table.add_column("ID", style="cyan", no_wrap=True, max_width=14)
+    table.add_column("Side", justify="center")
+    table.add_column("Price", justify="right")
+    table.add_column("Size", justify="right")
+    table.add_column("Fee (bps)", justify="right", style="dim")
+    table.add_column("Timestamp", style="dim")
+
+    for t in trades:
+        side = getattr(t, "side", "-")
+        side_style = "green" if side.lower() == "buy" else "red"
+        table.add_row(
+            getattr(t, "id", "-")[:12],
+            Text(side.upper(), style=side_style),
+            getattr(t, "price", "-"),
+            getattr(t, "size", "-"),
+            getattr(t, "fee_rate_bps", "-"),
+            getattr(t, "timestamp", "-"),
+        )
+
+    if not trades:
+        table.add_row("-", "-", "-", "-", "-", "-")
+
+    return Group(table)
+
+
+def render_poly_orders(orders: List[Any]) -> Group:
+    table = Table(title="Open Orders — Polymarket", box=box.ROUNDED, expand=True)
+    table.add_column("Order ID", style="cyan", no_wrap=True, max_width=16)
+    table.add_column("Market", max_width=14)
+    table.add_column("Side", justify="center")
+    table.add_column("Price", justify="right")
+    table.add_column("Size", justify="right")
+    table.add_column("Filled", justify="right", style="dim")
+    table.add_column("Status", justify="center")
+    table.add_column("Created", style="dim")
+
+    for o in orders:
+        side = getattr(o, "side", "-")
+        side_style = "green" if side.lower() == "buy" else "red"
+        table.add_row(
+            getattr(o, "order_id", "-")[:14],
+            getattr(o, "market", "-")[:12],
+            Text(side.upper(), style=side_style),
+            getattr(o, "price", "-"),
+            getattr(o, "size", "-"),
+            getattr(o, "original_size", "-"),
+            getattr(o, "status", "-"),
+            getattr(o, "created_at", "-"),
+        )
+
+    if not orders:
+        table.add_row("-", "-", "-", "-", "-", "-", "-", "-")
+
+    return Group(table)
+
+
+def render_poly_positions(positions: List[Any]) -> Group:
+    table = Table(title="Positions — Polymarket", box=box.ROUNDED, expand=True)
+    table.add_column("Asset ID", style="cyan", no_wrap=True, max_width=20)
+    table.add_column("Market", max_width=18)
+    table.add_column("Size", justify="right")
+    table.add_column("Realized PnL", justify="right")
+
+    for p in positions:
+        pnl = getattr(p, "realized_pnl", None) or "-"
+        table.add_row(
+            getattr(p, "asset_id", "-")[:18],
+            getattr(p, "market", "-")[:16],
+            getattr(p, "size", "-"),
+            pnl,
+        )
+
+    if not positions:
+        table.add_row("-", "-", "-", "-")
+
+    return Group(table)

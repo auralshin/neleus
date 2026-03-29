@@ -143,15 +143,15 @@ impl HyperliquidDataAdapter {
         match sub {
             DataSubscription::Trades { instrument_id } => Some(WsSubscription {
                 subscription_type: WsSubscriptionType::Trades,
-                instrument: Some(instrument_id.symbol.clone()),
+                instrument: Some(instrument_id.symbol.to_string()),
             }),
             DataSubscription::OrderBook { instrument_id, .. } => Some(WsSubscription {
                 subscription_type: WsSubscriptionType::L2Book,
-                instrument: Some(instrument_id.symbol.clone()),
+                instrument: Some(instrument_id.symbol.to_string()),
             }),
             DataSubscription::Quotes { instrument_id } => Some(WsSubscription {
                 subscription_type: WsSubscriptionType::AllMids,
-                instrument: Some(instrument_id.symbol.clone()),
+                instrument: Some(instrument_id.symbol.to_string()),
             }),
             DataSubscription::Bars { .. } => None,
         }
@@ -222,7 +222,7 @@ impl HyperliquidAdapter {
 
     pub fn to_coin(&self, instrument_id: &InstrumentId) -> Option<String> {
         if instrument_id.venue == Venue::Hyperliquid {
-            Some(instrument_id.symbol.clone())
+            Some(instrument_id.symbol.to_string())
         } else {
             None
         }

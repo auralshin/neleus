@@ -101,11 +101,23 @@ fn neleus_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyTimescaleConfig>()?;
     m.add_class::<PyTimescaleStore>()?;
 
+    // Polymarket Data
+    m.add_class::<PyPolymarketClient>()?;
+    m.add_class::<PyPolymarketMarket>()?;
+    m.add_class::<PyPolymarketBookLevel>()?;
+    m.add_class::<PyPolymarketBook>()?;
+    m.add_class::<PyPolymarketTrade>()?;
+
     // Live trading
     m.add_class::<PyOrderResult>()?;
     m.add_class::<PyOpenOrder>()?;
     m.add_class::<PyFillRecord>()?;
     m.add_class::<PyHyperliquidTrader>()?;
+    
+    // Polymarket Trading
+    m.add_class::<PyPolymarketOrder>()?;
+    m.add_class::<PyPolymarketPosition>()?;
+    m.add_class::<PyPolymarketTrader>()?;
 
     // DB-backed trade monitoring
     m.add_class::<PyDbOrderRecord>()?;

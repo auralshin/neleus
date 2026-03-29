@@ -100,13 +100,13 @@ impl PyInstrumentId {
 
 impl PyInstrumentId {
     pub fn to_rust(&self) -> InstrumentId {
-        InstrumentId::new(self.venue.into(), &self.symbol, self.instrument_type.into())
+        InstrumentId::new(self.venue.into(), &*self.symbol, self.instrument_type.into())
     }
 
     pub fn from_rust(id: &InstrumentId) -> Self {
         Self {
             venue: id.venue.into(),
-            symbol: id.symbol.clone(),
+            symbol: id.symbol.to_string(),
             instrument_type: match id.kind {
                 InstrumentType::Perp => PyInstrumentType::Perp,
                 InstrumentType::Spot => PyInstrumentType::Spot,

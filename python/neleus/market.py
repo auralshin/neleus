@@ -21,6 +21,20 @@ from .constants import (
     SMA_PERIOD,
 )
 from .types import HyperliquidClient
+from .config import load_project_config
+
+def _make_hl_client(testnet: bool) -> "HyperliquidClient":
+    try:
+        cfg = load_project_config()
+        hl = cfg.get("hyperliquid", {})
+    except FileNotFoundError:
+        hl = {}
+    return HyperliquidClient(
+        testnet=testnet,
+        ws_url=hl.get("ws_url") or None,
+        rest_url=hl.get("rest_url") or None,
+    )
+
 
 DEFAULT_SCAN_SYMBOLS = (
     "BTC",
@@ -112,7 +126,7 @@ def fetch_market_candles(
     testnet: bool = False,
     dex: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-    client = HyperliquidClient(testnet=testnet)
+    client = _make_hl_client(testnet)
     end_time = datetime.now(timezone.utc)
     lookback = timedelta(milliseconds=_timeframe_to_millis(timeframe) * max(lookback_bars, 2))
     start_time = end_time - lookback
@@ -360,7 +374,7 @@ def list_markets(
     search: Optional[str] = None,
     testnet: bool = False,
 ) -> MarketCatalog:
-    client = HyperliquidClient(testnet=testnet)
+    client = _make_hl_client(testnet)
     normalized_scope = normalize_market_scope(scope)
     entries: List[MarketEntry] = []
     dex_counts: Dict[str, int] = {}

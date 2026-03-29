@@ -23,7 +23,13 @@ from rich.syntax import Syntax
 
 from .. import __version__
 from ..backtest_runner import BacktestRunner
-from ..config import discover_strategies, get_db_config, get_hyperliquid_credentials, load_project_config
+from ..config import (
+    discover_strategies,
+    get_db_config,
+    get_hyperliquid_credentials,
+    get_polymarket_credentials,
+    load_project_config,
+)
 from ..market import (
     analyze_market,
     list_markets,
@@ -37,10 +43,18 @@ from .ui import (
     render_about_panel,
     render_backtest_result,
     render_brand_banner,
+    render_hl_fills,
+    render_hl_order_result,
+    render_hl_orders,
     render_l2_book,
     render_market_analysis,
     render_market_catalog,
     render_market_scan,
+    render_poly_book,
+    render_poly_markets,
+    render_poly_orders,
+    render_poly_positions,
+    render_poly_trades,
     render_project_created,
     render_project_info,
     render_runtime_result,
@@ -58,9 +72,13 @@ app = typer.Typer(
 market_app = typer.Typer(help="Search, analyze, scan, and monitor Hyperliquid markets.")
 strategy_app = typer.Typer(help="Manage project strategy files.")
 db_app = typer.Typer(help="Database adapter management (status, schema init).")
+hl_app = typer.Typer(help="Hyperliquid live trading: orders, fills, buy, sell, cancel.")
+poly_app = typer.Typer(help="Polymarket data and trading: markets, book, trades, orders, positions.")
 app.add_typer(market_app, name="market")
 app.add_typer(strategy_app, name="strategy")
 app.add_typer(db_app, name="db")
+app.add_typer(hl_app, name="hl")
+app.add_typer(poly_app, name="poly")
 
 CONFIG_FILE = "neleus.toml"
 
@@ -128,6 +146,15 @@ HYPERLIQUID_TESTNET=false
 # Copy this file to .env and fill in your values — never commit .env.
 HYPERLIQUID_ACCOUNT_ADDRESS=0x...
 HYPERLIQUID_SIGNER_PRIVATE_KEY=0x...
+
+# Polymarket
+# Required for neleus poly orders/positions/buy/sell/cancel.
+POLYMARKET_SIGNER_ADDRESS=0x...
+POLYMARKET_PRIVATE_KEY=0x...
+# Optional L2 API credentials (derived via neleus poly derive-api-key or CLOB dashboard)
+POLYMARKET_API_KEY=
+POLYMARKET_API_SECRET=
+POLYMARKET_API_PASSPHRASE=
 
 # Database adapter
 # Override the database.backend from neleus.toml
@@ -896,6 +923,414 @@ def _init_schema(db_cfg) -> None:
             flush_interval_ms=db_cfg.flush_interval_ms,
         )
         TimescaleStore(config=cfg)
+
+
+# ---------------------------------------------------------------------------
+# Hyperliquid live-trading helpers
+# ---------------------------------------------------------------------------
+
+def _require_hl_private_key(testnet: Optional[bool] = None) -> tuple[str, bool]:
+    """Resolve private key + testnet flag; exits with a clear message if missing."""
+    try:
+        cfg = load_project_config()
+    except FileNotFoundError:
+        cfg = {}
+    creds = get_hyperliquid_credentials(cfg)
+    private_key = creds.get("signer_private_key")
+    if not private_key:
+        console.print(
+            "[red]No private key found.[/red] "
+            "Set [bold]HYPERLIQUID_SIGNER_PRIVATE_KEY[/bold] in .env or run "
+            "[bold]neleus new/init --private-key 0x...[/bold]"
+        )
+        raise typer.Exit(1)
+    resolved_testnet = testnet if testnet is not None else bool(cfg.get("hyperliquid", {}).get("testnet", False))
+    return private_key, resolved_testnet
+
+
+def _require_poly_private_key(testnet: bool) -> dict:
+    """Resolve Polymarket credentials; exits if private key is missing."""
+    try:
+        cfg = load_project_config()
+    except FileNotFoundError:
+        cfg = {}
+    creds = get_polymarket_credentials(cfg)
+    if not creds.get("private_key"):
+        console.print(
+            "[red]No Polymarket private key found.[/red] "
+            "Set [bold]POLYMARKET_PRIVATE_KEY[/bold] in .env."
+        )
+        raise typer.Exit(1)
+    return creds
+
+
+# ---------------------------------------------------------------------------
+# hl commands — Hyperliquid live trading
+# ---------------------------------------------------------------------------
+
+@hl_app.command("orders")
+def hl_orders(
+    testnet: Optional[bool] = typer.Option(None, "--testnet/--mainnet"),
+    output: str = typer.Option("table", "--output", "-o", help="table or json"),
+):
+    """List open Hyperliquid orders."""
+    from ..types import HyperliquidTrader
+    private_key, is_testnet = _require_hl_private_key(testnet)
+    try:
+        with console.status("[bold cyan]Fetching open orders..."):
+            trader = HyperliquidTrader(private_key, testnet=is_testnet, load_metadata=False)
+            orders = trader.get_open_orders()
+    except Exception as exc:
+        console.print(f"[red]Error fetching orders:[/red] {exc}")
+        raise typer.Exit(1)
+    if output == "json":
+        console.print_json(data=[
+            {"order_id": o.order_id, "coin": o.coin, "side": o.side,
+             "size": o.size, "filled_size": o.filled_size, "price": o.price,
+             "status": o.status, "timestamp_ms": o.timestamp_ms}
+            for o in orders
+        ])
+        return
+    console.print(render_hl_orders(orders))
+
+
+@hl_app.command("fills")
+def hl_fills(
+    limit: int = typer.Option(50, "--limit", "-n", min=1, max=500),
+    testnet: Optional[bool] = typer.Option(None, "--testnet/--mainnet"),
+    output: str = typer.Option("table", "--output", "-o", help="table or json"),
+):
+    """List recent Hyperliquid fills."""
+    from ..types import HyperliquidTrader
+    private_key, is_testnet = _require_hl_private_key(testnet)
+    try:
+        with console.status(f"[bold cyan]Fetching last {limit} fills..."):
+            trader = HyperliquidTrader(private_key, testnet=is_testnet, load_metadata=False)
+            fills = trader.get_fills(limit=limit)
+    except Exception as exc:
+        console.print(f"[red]Error fetching fills:[/red] {exc}")
+        raise typer.Exit(1)
+    if output == "json":
+        console.print_json(data=[
+            {"order_id": f.order_id, "coin": f.coin, "side": f.side,
+             "size": f.size, "price": f.price, "fee": f.fee, "timestamp_ms": f.timestamp_ms}
+            for f in fills
+        ])
+        return
+    console.print(render_hl_fills(fills))
+
+
+@hl_app.command("buy")
+def hl_buy(
+    coin: str = typer.Argument(..., help="Coin symbol, e.g. BTC or ETH."),
+    size: float = typer.Argument(..., help="Base-asset quantity."),
+    price: Optional[float] = typer.Option(None, "--price", "-p", help="Limit price. Omit for market order."),
+    slippage_bps: int = typer.Option(50, "--slippage-bps", help="Slippage for market orders (bps)."),
+    post_only: bool = typer.Option(False, "--post-only", help="ALO (limit only)."),
+    reduce_only: bool = typer.Option(False, "--reduce-only"),
+    testnet: Optional[bool] = typer.Option(None, "--testnet/--mainnet"),
+):
+    """Place a buy order on Hyperliquid."""
+    from ..types import HyperliquidTrader
+    private_key, is_testnet = _require_hl_private_key(testnet)
+    try:
+        with console.status(f"[bold cyan]Placing buy order: {size} {coin}..."):
+            trader = HyperliquidTrader(private_key, testnet=is_testnet)
+            if price is not None:
+                result = trader.place_limit_order(coin, True, size, price, post_only=post_only, reduce_only=reduce_only)
+            else:
+                result = trader.place_market_order(coin, True, size, slippage_bps=slippage_bps)
+    except Exception as exc:
+        console.print(f"[red]Error placing buy order:[/red] {exc}")
+        raise typer.Exit(1)
+    console.print(render_hl_order_result(result, action="Buy Order"))
+
+
+@hl_app.command("sell")
+def hl_sell(
+    coin: str = typer.Argument(..., help="Coin symbol, e.g. BTC or ETH."),
+    size: float = typer.Argument(..., help="Base-asset quantity."),
+    price: Optional[float] = typer.Option(None, "--price", "-p", help="Limit price. Omit for market order."),
+    slippage_bps: int = typer.Option(50, "--slippage-bps", help="Slippage for market orders (bps)."),
+    post_only: bool = typer.Option(False, "--post-only", help="ALO (limit only)."),
+    reduce_only: bool = typer.Option(False, "--reduce-only"),
+    testnet: Optional[bool] = typer.Option(None, "--testnet/--mainnet"),
+):
+    """Place a sell order on Hyperliquid."""
+    from ..types import HyperliquidTrader
+    private_key, is_testnet = _require_hl_private_key(testnet)
+    try:
+        with console.status(f"[bold cyan]Placing sell order: {size} {coin}..."):
+            trader = HyperliquidTrader(private_key, testnet=is_testnet)
+            if price is not None:
+                result = trader.place_limit_order(coin, False, size, price, post_only=post_only, reduce_only=reduce_only)
+            else:
+                result = trader.place_market_order(coin, False, size, slippage_bps=slippage_bps)
+    except Exception as exc:
+        console.print(f"[red]Error placing sell order:[/red] {exc}")
+        raise typer.Exit(1)
+    console.print(render_hl_order_result(result, action="Sell Order"))
+
+
+@hl_app.command("cancel")
+def hl_cancel(
+    coin: str = typer.Argument(..., help="Coin symbol, e.g. BTC."),
+    order_id: Optional[int] = typer.Option(None, "--order-id", help="Exchange order ID."),
+    cloid: Optional[str] = typer.Option(None, "--cloid", help="Client order ID."),
+    testnet: Optional[bool] = typer.Option(None, "--testnet/--mainnet"),
+):
+    """Cancel a Hyperliquid order by order-id or cloid."""
+    if order_id is None and cloid is None:
+        console.print("[red]Provide --order-id or --cloid.[/red]")
+        raise typer.Exit(1)
+    from ..types import HyperliquidTrader
+    private_key, is_testnet = _require_hl_private_key(testnet)
+    try:
+        with console.status("[bold cyan]Cancelling order..."):
+            trader = HyperliquidTrader(private_key, testnet=is_testnet, load_metadata=False)
+            if order_id is not None:
+                ok = trader.cancel_order(coin, order_id)
+            else:
+                ok = trader.cancel_order_by_cloid(coin, cloid)
+    except Exception as exc:
+        console.print(f"[red]Error cancelling order:[/red] {exc}")
+        raise typer.Exit(1)
+    if ok:
+        console.print("[green]Order cancelled.[/green]")
+    else:
+        console.print("[red]Cancel failed or order not found.[/red]")
+        raise typer.Exit(1)
+
+
+# ---------------------------------------------------------------------------
+# poly commands — Polymarket data and trading
+# ---------------------------------------------------------------------------
+
+def _make_poly_client(testnet: bool):
+    from ..types import PolymarketClient
+    try:
+        cfg = load_project_config()
+    except FileNotFoundError:
+        cfg = {}
+    poly = cfg.get("polymarket", {})
+    return PolymarketClient(
+        testnet=testnet,
+        clob_url=poly.get("clob_url") or None,
+        gamma_url=poly.get("gamma_url") or None,
+    )
+
+
+def _make_poly_trader(creds: dict, testnet: bool):
+    from ..types import PolymarketTrader
+    return PolymarketTrader(
+        creds["private_key"],
+        testnet=testnet,
+        api_key=creds.get("api_key"),
+        api_secret=creds.get("api_secret"),
+        api_passphrase=creds.get("api_passphrase"),
+    )
+
+
+@poly_app.command("markets")
+def poly_markets(
+    limit: int = typer.Option(20, "--limit", "-n", min=1, max=200),
+    testnet: bool = typer.Option(False, "--testnet"),
+    output: str = typer.Option("table", "--output", "-o", help="table or json"),
+):
+    """List active Polymarket prediction markets."""
+    try:
+        with console.status("[bold cyan]Fetching Polymarket markets..."):
+            client = _make_poly_client(testnet)
+            markets = client.get_markets(limit=limit)
+    except Exception as exc:
+        console.print(f"[red]Error fetching markets:[/red] {exc}")
+        raise typer.Exit(1)
+    if output == "json":
+        console.print_json(data=[
+            {"token_id": m.token_id, "slug": m.market_slug, "question": m.question,
+             "active": m.active, "volume": m.volume}
+            for m in markets
+        ])
+        return
+    console.print(render_poly_markets(markets))
+
+
+@poly_app.command("book")
+def poly_book(
+    token_id: str = typer.Argument(..., help="Polymarket token ID (condition token)."),
+    testnet: bool = typer.Option(False, "--testnet"),
+    output: str = typer.Option("table", "--output", "-o", help="table or json"),
+):
+    """Show the order book for a Polymarket token."""
+    try:
+        with console.status(f"[bold cyan]Fetching book for {token_id[:16]}..."):
+            client = _make_poly_client(testnet)
+            book = client.get_book(token_id)
+    except Exception as exc:
+        console.print(f"[red]Error fetching book:[/red] {exc}")
+        raise typer.Exit(1)
+    if output == "json":
+        console.print_json(data={
+            "market": book.market,
+            "asset_id": book.asset_id,
+            "timestamp": book.timestamp,
+            "bids": [{"price": l.price, "size": l.size} for l in book.bids],
+            "asks": [{"price": l.price, "size": l.size} for l in book.asks],
+        })
+        return
+    console.print(render_poly_book(book))
+
+
+@poly_app.command("trades")
+def poly_trades(
+    token_id: str = typer.Argument(..., help="Polymarket market/token ID."),
+    limit: int = typer.Option(20, "--limit", "-n", min=1, max=200),
+    testnet: bool = typer.Option(False, "--testnet"),
+    output: str = typer.Option("table", "--output", "-o", help="table or json"),
+):
+    """Show recent trades for a Polymarket market."""
+    try:
+        with console.status(f"[bold cyan]Fetching trades for {token_id[:16]}..."):
+            client = _make_poly_client(testnet)
+            trades = client.get_trades(token_id, limit=limit)
+    except Exception as exc:
+        console.print(f"[red]Error fetching trades:[/red] {exc}")
+        raise typer.Exit(1)
+    if output == "json":
+        console.print_json(data=[
+            {"id": t.id, "side": t.side, "price": t.price, "size": t.size,
+             "fee_rate_bps": t.fee_rate_bps, "timestamp": t.timestamp}
+            for t in trades
+        ])
+        return
+    console.print(render_poly_trades(trades))
+
+
+@poly_app.command("orders")
+def poly_orders(
+    testnet: bool = typer.Option(False, "--testnet"),
+    output: str = typer.Option("table", "--output", "-o", help="table or json"),
+):
+    """List open Polymarket orders (requires credentials)."""
+    creds = _require_poly_private_key(testnet)
+    try:
+        with console.status("[bold cyan]Fetching Polymarket orders..."):
+            orders = _make_poly_trader(creds, testnet).get_orders()
+    except Exception as exc:
+        console.print(f"[red]Error fetching orders:[/red] {exc}")
+        raise typer.Exit(1)
+    if output == "json":
+        console.print_json(data=[
+            {"order_id": o.order_id, "market": o.market, "side": o.side,
+             "price": o.price, "size": o.size, "status": o.status}
+            for o in orders
+        ])
+        return
+    console.print(render_poly_orders(orders))
+
+
+@poly_app.command("positions")
+def poly_positions(
+    testnet: bool = typer.Option(False, "--testnet"),
+    output: str = typer.Option("table", "--output", "-o", help="table or json"),
+):
+    """List Polymarket positions (requires credentials)."""
+    creds = _require_poly_private_key(testnet)
+    try:
+        with console.status("[bold cyan]Fetching Polymarket positions..."):
+            positions = _make_poly_trader(creds, testnet).get_positions()
+    except Exception as exc:
+        console.print(f"[red]Error fetching positions:[/red] {exc}")
+        raise typer.Exit(1)
+    if output == "json":
+        console.print_json(data=[
+            {"asset_id": p.asset_id, "market": p.market, "size": p.size, "realized_pnl": p.realized_pnl}
+            for p in positions
+        ])
+        return
+    console.print(render_poly_positions(positions))
+
+
+@poly_app.command("buy")
+def poly_buy(
+    token_id: str = typer.Argument(..., help="Polymarket token ID."),
+    maker_amount: str = typer.Argument(..., help="Maker amount (USDC, as string, e.g. '10.0')."),
+    taker_amount: str = typer.Argument(..., help="Taker amount (shares, as string, e.g. '20.0')."),
+    fee_rate_bps: str = typer.Option("0", "--fee-rate-bps"),
+    testnet: bool = typer.Option(False, "--testnet"),
+):
+    """Place a buy order on Polymarket.
+
+    Example
+    -------
+    neleus poly buy <token_id> 10.0 20.0
+    """
+    creds = _require_poly_private_key(testnet)
+    try:
+        with console.status("[bold cyan]Placing Polymarket buy order..."):
+            order_id = _make_poly_trader(creds, testnet).place_order(
+                token_id, maker_amount, taker_amount, "BUY", fee_rate_bps=fee_rate_bps
+            )
+    except Exception as exc:
+        console.print(f"[red]Error placing buy order:[/red] {exc}")
+        raise typer.Exit(1)
+    console.print(f"[green]Order placed:[/green] {order_id}")
+
+
+@poly_app.command("sell")
+def poly_sell(
+    token_id: str = typer.Argument(..., help="Polymarket token ID."),
+    maker_amount: str = typer.Argument(..., help="Maker amount (shares, as string)."),
+    taker_amount: str = typer.Argument(..., help="Taker amount (USDC, as string)."),
+    fee_rate_bps: str = typer.Option("0", "--fee-rate-bps"),
+    testnet: bool = typer.Option(False, "--testnet"),
+):
+    """Place a sell order on Polymarket."""
+    creds = _require_poly_private_key(testnet)
+    try:
+        with console.status("[bold cyan]Placing Polymarket sell order..."):
+            order_id = _make_poly_trader(creds, testnet).place_order(
+                token_id, maker_amount, taker_amount, "SELL", fee_rate_bps=fee_rate_bps
+            )
+    except Exception as exc:
+        console.print(f"[red]Error placing sell order:[/red] {exc}")
+        raise typer.Exit(1)
+    console.print(f"[green]Order placed:[/green] {order_id}")
+
+
+@poly_app.command("cancel")
+def poly_cancel(
+    order_id: str = typer.Argument(..., help="Polymarket order ID."),
+    testnet: bool = typer.Option(False, "--testnet"),
+):
+    """Cancel a Polymarket order."""
+    creds = _require_poly_private_key(testnet)
+    try:
+        with console.status(f"[bold cyan]Cancelling order {order_id[:16]}..."):
+            ok = _make_poly_trader(creds, testnet).cancel_order(order_id)
+    except Exception as exc:
+        console.print(f"[red]Error cancelling order:[/red] {exc}")
+        raise typer.Exit(1)
+    if ok:
+        console.print("[green]Order cancelled.[/green]")
+    else:
+        console.print("[red]Cancel failed or order not found.[/red]")
+        raise typer.Exit(1)
+
+
+@poly_app.command("cancel-all")
+def poly_cancel_all(
+    testnet: bool = typer.Option(False, "--testnet"),
+):
+    """Cancel all open Polymarket orders."""
+    creds = _require_poly_private_key(testnet)
+    try:
+        with console.status("[bold cyan]Cancelling all orders..."):
+            cancelled = _make_poly_trader(creds, testnet).cancel_all_orders()
+    except Exception as exc:
+        console.print(f"[red]Error cancelling orders:[/red] {exc}")
+        raise typer.Exit(1)
+    console.print(f"[green]Cancelled {cancelled} order(s).[/green]")
 
 
 # ---------------------------------------------------------------------------

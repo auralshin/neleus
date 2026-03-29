@@ -150,13 +150,20 @@ impl PyHyperliquidTrader {
     ///     placed immediately (default True).  Set to False and call
     ///     ``load_asset_metadata()`` manually if you want to control timing.
     #[new]
-    #[pyo3(signature = (private_key, testnet = false, load_metadata = true))]
-    pub fn new(private_key: &str, testnet: bool, load_metadata: bool) -> PyResult<Self> {
-        let config = if testnet {
+    #[pyo3(signature = (private_key, testnet = false, load_metadata = true, ws_url = None, rest_url = None))]
+    pub fn new(private_key: &str, testnet: bool, load_metadata: bool, ws_url: Option<String>, rest_url: Option<String>) -> PyResult<Self> {
+        let mut config = if testnet {
             HyperliquidConfig::testnet()
         } else {
             HyperliquidConfig::mainnet()
         };
+
+        if let Some(url) = ws_url {
+            config.ws_url = url;
+        }
+        if let Some(url) = rest_url {
+            config.rest_url = url;
+        }
 
         let runtime = tokio::runtime::Runtime::new()
             .map_err(|e| PyRuntimeError::new_err(format!("tokio runtime: {}", e)))?;
@@ -848,3 +855,218 @@ fn parse_order_response(response: PlaceOrderResponse, cloid: Option<String>) -> 
         error,
     }
 }
+
+use neleus_adapters_polymarket::{
+    auth::{L2Authenticator, PolymarketSigner},
+    client::{OrderRequest, PolymarketClient as RustPolymarketClient},
+    PolymarketConfig,
+};
+
+#[pyclass(name = "PolymarketOrder")]
+#[derive(Debug, Clone)]
+pub struct PyPolymarketOrder {
+    #[pyo3(get)]
+    pub order_id: String,
+    #[pyo3(get)]
+    pub market: String,
+    #[pyo3(get)]
+    pub asset_id: String,
+    #[pyo3(get)]
+    pub order_type: String,
+    #[pyo3(get)]
+    pub side: String,
+    #[pyo3(get)]
+    pub price: String,
+    #[pyo3(get)]
+    pub size: String,
+    #[pyo3(get)]
+    pub original_size: String,
+    #[pyo3(get)]
+    pub created_at: String,
+    #[pyo3(get)]
+    pub status: String,
+    #[pyo3(get)]
+    pub owner: String,
+}
+
+impl From<neleus_adapters_polymarket::PolymarketOrder> for PyPolymarketOrder {
+    fn from(o: neleus_adapters_polymarket::PolymarketOrder) -> Self {
+        Self {
+            order_id: o.order_id,
+            market: o.market,
+            asset_id: o.asset_id,
+            order_type: o.order_type,
+            side: o.side,
+            price: o.price,
+            size: o.size,
+            original_size: o.original_size,
+            created_at: o.created_at,
+            status: format!("{:?}", o.status),
+            owner: o.owner,
+        }
+    }
+}
+
+#[pyclass(name = "PolymarketPosition")]
+#[derive(Debug, Clone)]
+pub struct PyPolymarketPosition {
+    #[pyo3(get)]
+    pub asset_id: String,
+    #[pyo3(get)]
+    pub market: String,
+    #[pyo3(get)]
+    pub size: String,
+    #[pyo3(get)]
+    pub realized_pnl: Option<String>,
+}
+
+impl From<neleus_adapters_polymarket::PolymarketPosition> for PyPolymarketPosition {
+    fn from(p: neleus_adapters_polymarket::PolymarketPosition) -> Self {
+        Self {
+            asset_id: p.asset_id,
+            market: p.market,
+            size: p.size,
+            realized_pnl: p.realized_pnl,
+        }
+    }
+}
+
+#[pyclass(name = "PolymarketTrader")]
+pub struct PyPolymarketTrader {
+    client: Arc<Mutex<RustPolymarketClient>>,
+    runtime: tokio::runtime::Runtime,
+    is_testnet: bool,
+}
+
+#[pymethods]
+impl PyPolymarketTrader {
+    #[new]
+    #[pyo3(signature = (private_key, testnet = false, funder_address = None, clob_url = None, gamma_url = None, ws_url = None, api_key = None, api_secret = None, api_passphrase = None))]
+    pub fn new(
+        private_key: &str,
+        testnet: bool,
+        funder_address: Option<String>,
+        clob_url: Option<String>,
+        gamma_url: Option<String>,
+        ws_url: Option<String>,
+        api_key: Option<String>,
+        api_secret: Option<String>,
+        api_passphrase: Option<String>,
+    ) -> PyResult<Self> {
+        let mut config = if testnet {
+            PolymarketConfig::testnet()
+        } else {
+            PolymarketConfig::mainnet()
+        };
+
+        if let Some(url) = clob_url {
+            config.clob_url = url;
+        }
+        if let Some(url) = gamma_url {
+            config.gamma_url = url;
+        }
+        if let Some(url) = ws_url {
+            config.ws_url = url;
+        }
+
+        if let Some(funder) = funder_address {
+            config = config.with_funder(funder);
+        }
+
+        config.private_key = Some(private_key.to_string());
+
+        let runtime = tokio::runtime::Runtime::new()
+            .map_err(|e| PyRuntimeError::new_err(format!("tokio runtime: {}", e)))?;
+
+        let signer = PolymarketSigner::new(config.clone())
+            .map_err(|e| PyRuntimeError::new_err(format!("Invalid private key: {:?}", e)))?;
+            
+        config.signer_address = Some(signer.get_address());
+
+        let mut client = RustPolymarketClient::new(config.clone()).with_signer(signer);
+
+        if let (Some(ak), Some(asect), Some(apass)) = (api_key, api_secret, api_passphrase) {
+            let auth = L2Authenticator::new(ak, asect, apass);
+            client = client.with_l2_auth(auth);
+        } else {
+            runtime.block_on(async {
+                if client.derive_api_key().await.is_err() {
+                    let _ = client.create_api_key().await;
+                }
+            });
+        }
+
+        Ok(Self {
+            client: Arc::new(Mutex::new(client)),
+            runtime,
+            is_testnet: testnet,
+        })
+    }
+
+    pub fn get_orders(&self) -> PyResult<Vec<PyPolymarketOrder>> {
+        let client_arc = self.client.clone();
+        let orders = self.runtime.block_on(async move {
+            client_arc.lock().await.get_orders().await
+        }).map_err(|e| PyRuntimeError::new_err(format!("fetch orders: {:?}", e)))?;
+
+        Ok(orders.into_iter().map(PyPolymarketOrder::from).collect())
+    }
+
+    pub fn get_positions(&self) -> PyResult<Vec<PyPolymarketPosition>> {
+        let client_arc = self.client.clone();
+        let positions = self.runtime.block_on(async move {
+            client_arc.lock().await.get_positions().await
+        }).map_err(|e| PyRuntimeError::new_err(format!("fetch positions: {:?}", e)))?;
+
+        Ok(positions.into_iter().map(PyPolymarketPosition::from).collect())
+    }
+
+    #[pyo3(signature = (token_id, maker_amount, taker_amount, side, fee_rate_bps = "0", nonce = "0", expiration = "0"))]
+    pub fn place_order(
+        &self,
+        token_id: &str,
+        maker_amount: &str,
+        taker_amount: &str,
+        side: &str,
+        fee_rate_bps: &str,
+        nonce: &str,
+        expiration: &str,
+    ) -> PyResult<String> {
+        let req = OrderRequest {
+            token_id: token_id.to_string(),
+            maker_amount: maker_amount.to_string(),
+            taker_amount: taker_amount.to_string(),
+            side: side.to_string(),
+            fee_rate_bps: fee_rate_bps.to_string(),
+            nonce: nonce.to_string(),
+            expiration: expiration.to_string(),
+        };
+
+        let client_arc = self.client.clone();
+        let resp = self.runtime.block_on(async move {
+            client_arc.lock().await.place_order(req).await
+        }).map_err(|e| PyRuntimeError::new_err(format!("place order: {:?}", e)))?;
+
+        Ok(resp.order_id)
+    }
+
+    pub fn cancel_order(&self, order_id: &str) -> PyResult<bool> {
+        let client_arc = self.client.clone();
+        let order_id = order_id.to_string();
+        let resp = self.runtime.block_on(async move {
+            client_arc.lock().await.cancel_order(&order_id).await
+        }).map_err(|e| PyRuntimeError::new_err(format!("cancel order: {:?}", e)))?;
+
+        Ok(resp.success)
+    }
+
+    pub fn cancel_all_orders(&self) -> PyResult<u32> {
+        let client_arc = self.client.clone();
+        let resp = self.runtime.block_on(async move {
+            client_arc.lock().await.cancel_all_orders().await
+        }).map_err(|e| PyRuntimeError::new_err(format!("cancel all orders: {:?}", e)))?;
+
+        Ok(resp.cancelled)
+    }
+}
+

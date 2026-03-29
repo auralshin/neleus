@@ -175,6 +175,9 @@ pub struct ExecutionAlgorithmManager {
     order_counter: u64,
 
     volume_tracker: HashMap<InstrumentId, f64>,
+
+    /// Reverse map: child order → owning algo, for O(1) fill routing.
+    order_to_algo: HashMap<OrderId, String>,
 }
 
 impl ExecutionAlgorithmManager {
@@ -188,6 +191,7 @@ impl ExecutionAlgorithmManager {
             pending_commands: VecDeque::new(),
             order_counter: 0,
             volume_tracker: HashMap::new(),
+            order_to_algo: HashMap::new(),
         }
     }
 
@@ -200,7 +204,6 @@ impl ExecutionAlgorithmManager {
         current_time: UnixNanos,
     ) {
         let end_time = UnixNanos::from_nanos(current_time.0 + config.duration_nanos);
-        let _slice_interval = config.duration_nanos / config.num_slices as u64;
 
         let state = ExecutionAlgorithmState {
             algo_type: ExecutionAlgorithmType::TWAP,
@@ -304,7 +307,6 @@ impl ExecutionAlgorithmManager {
         };
 
         self.volume_tracker.insert(instrument_id, 0.0);
-
         self.algorithms.insert(algo_id.clone(), state);
         self.pov_configs.insert(algo_id, config);
     }
@@ -319,6 +321,7 @@ impl ExecutionAlgorithmManager {
         let state = self.algorithms.remove(algo_id)?;
 
         for order_id in &state.child_order_ids {
+            self.order_to_algo.remove(order_id);
             self.pending_commands
                 .push_back(StrategyCommand::CancelOrder {
                     order_id: order_id.clone(),
@@ -334,268 +337,344 @@ impl ExecutionAlgorithmManager {
     }
 
     pub fn on_time(&mut self, current_time: UnixNanos) {
-        let algo_ids: Vec<_> = self.algorithms.keys().cloned().collect();
+        if self.algorithms.is_empty() {
+            return;
+        }
+
+        // Collect only active algo IDs to avoid iterating completed ones.
+        let algo_ids: Vec<String> = self
+            .algorithms
+            .iter()
+            .filter_map(|(id, s)| if !s.is_complete { Some(id.clone()) } else { None })
+            .collect();
 
         for algo_id in algo_ids {
-            if let Some(state) = self.algorithms.get(&algo_id) {
-                if state.is_complete {
-                    continue;
-                }
-
-                match state.algo_type {
-                    ExecutionAlgorithmType::TWAP => {
-                        self.process_twap(&algo_id, current_time);
-                    }
-                    ExecutionAlgorithmType::VWAP => {
-                        self.process_vwap(&algo_id, current_time);
-                    }
-                    ExecutionAlgorithmType::Iceberg => {}
-                    ExecutionAlgorithmType::POV => {
-                        self.process_pov(&algo_id, current_time);
-                    }
-                    ExecutionAlgorithmType::IS => {}
-                }
+            match self.algorithms.get(&algo_id).map(|s| s.algo_type) {
+                Some(ExecutionAlgorithmType::TWAP) => self.process_twap(&algo_id, current_time),
+                Some(ExecutionAlgorithmType::VWAP) => self.process_vwap(&algo_id, current_time),
+                Some(ExecutionAlgorithmType::POV)  => self.process_pov(&algo_id, current_time),
+                _ => {}
             }
         }
     }
 
     fn process_twap(&mut self, algo_id: &str, current_time: UnixNanos) {
-        let state = match self.algorithms.get(algo_id) {
-            Some(s) => s.clone(),
-            None => return,
+        // Phase 1: read-only checks — determine action without cloning structs.
+        let should_complete = {
+            let state = match self.algorithms.get(algo_id) {
+                Some(s) if !s.is_complete => s,
+                _ => return,
+            };
+            match self.twap_configs.get(algo_id) {
+                None => return,
+                Some(_) => {}
+            }
+            if current_time < state.next_slice_time {
+                return;
+            }
+            current_time > state.end_time || state.remaining_quantity <= 0.0
         };
 
-        let config = match self.twap_configs.get(algo_id) {
-            Some(c) => c.clone(),
-            None => return,
-        };
-
-        if current_time < state.next_slice_time {
-            return;
-        }
-
-        if current_time > state.end_time || state.remaining_quantity <= 0.0 {
+        if should_complete {
             if let Some(s) = self.algorithms.get_mut(algo_id) {
                 s.is_complete = true;
             }
             return;
         }
 
-        let slices_remaining = state.total_slices - state.slices_executed;
-        let base_slice_qty = state.remaining_quantity / slices_remaining.max(1) as f64;
-
-        let order_id = self.next_order_id(algo_id);
-        let order_type = if config.limit_price.is_some() {
-            OrderType::Limit
-        } else {
-            OrderType::Market
+        // Phase 2: extract only the scalar/cheap values we need.
+        let (instrument_id, side, qty, limit_price, duration_nanos, num_slices,
+             randomize_timing, randomize_range, start_nanos) = {
+            let state = self.algorithms.get(algo_id).unwrap();
+            let config = self.twap_configs.get(algo_id).unwrap();
+            let slices_remaining = (state.total_slices - state.slices_executed).max(1);
+            (
+                state.instrument_id.clone(), // Arc<str> clone — atomic increment only
+                state.side,
+                state.remaining_quantity / slices_remaining as f64,
+                config.limit_price,
+                config.duration_nanos,
+                config.num_slices,
+                config.randomize_timing,
+                config.randomize_range,
+                state.start_time.0,
+            )
         };
 
-        self.pending_commands
-            .push_back(StrategyCommand::SubmitOrder {
-                order_id: order_id.clone(),
-                instrument_id: state.instrument_id.clone(),
-                side: state.side,
-                order_type,
-                price: config.limit_price,
-                quantity: base_slice_qty,
-            });
+        // Phase 3: emit command and mutate state.
+        let order_id = self.next_order_id(algo_id);
+        let order_type = if limit_price.is_some() { OrderType::Limit } else { OrderType::Market };
+
+        self.pending_commands.push_back(StrategyCommand::SubmitOrder {
+            order_id: order_id.clone(),
+            instrument_id,
+            side,
+            order_type,
+            price: limit_price,
+            quantity: qty,
+        });
 
         if let Some(s) = self.algorithms.get_mut(algo_id) {
             s.slices_executed += 1;
-            s.child_order_ids.push(order_id);
+            s.child_order_ids.push(order_id.clone());
 
-            let slice_interval = config.duration_nanos / config.num_slices as u64;
+            let slice_interval = duration_nanos / num_slices as u64;
             let mut next_time =
-                state.start_time.as_nanos() + (s.slices_executed as u128 * slice_interval as u128);
+                start_nanos as u128 + (s.slices_executed as u128 * slice_interval as u128);
 
-            if config.randomize_timing {
+            if randomize_timing {
                 let mut rng = rand::thread_rng();
-                let jitter = (slice_interval as f64 * config.randomize_range) as i64;
+                let jitter = (slice_interval as f64 * randomize_range) as i64;
                 let offset = rng.gen_range(-jitter..=jitter);
                 next_time = (next_time as i128 + offset as i128).max(0) as u128;
             }
 
             s.next_slice_time = UnixNanos::from_nanos(next_time as u64);
         }
+
+        self.order_to_algo.insert(order_id, algo_id.to_string());
     }
 
     fn process_vwap(&mut self, algo_id: &str, current_time: UnixNanos) {
-        let state = match self.algorithms.get(algo_id) {
-            Some(s) => s.clone(),
-            None => return,
+        // Phase 1: read-only checks.
+        let should_complete = {
+            let state = match self.algorithms.get(algo_id) {
+                Some(s) if !s.is_complete => s,
+                _ => return,
+            };
+            let config = match self.vwap_configs.get(algo_id) {
+                Some(c) => c,
+                None => return,
+            };
+            let elapsed = current_time.0.saturating_sub(state.start_time.0) as u128;
+            let bucket_size = config.duration_nanos as u128 / config.num_buckets as u128;
+            let current_bucket =
+                (elapsed / bucket_size).min(config.num_buckets as u128 - 1) as usize;
+            if current_bucket < state.slices_executed {
+                return;
+            }
+            current_time > state.end_time || state.remaining_quantity <= 0.0
         };
 
-        let config = match self.vwap_configs.get(algo_id) {
-            Some(c) => c.clone(),
-            None => return,
-        };
-
-        let elapsed = current_time
-            .as_nanos()
-            .saturating_sub(state.start_time.as_nanos());
-        let bucket_size = config.duration_nanos as u128 / config.num_buckets as u128;
-        let current_bucket = (elapsed / bucket_size).min(config.num_buckets as u128 - 1) as usize;
-
-        if current_bucket < state.slices_executed {
-            return;
-        }
-
-        if current_time > state.end_time || state.remaining_quantity <= 0.0 {
+        if should_complete {
             if let Some(s) = self.algorithms.get_mut(algo_id) {
                 s.is_complete = true;
             }
             return;
         }
 
-        let bucket_fraction = config
-            .volume_profile
-            .get(current_bucket)
-            .copied()
-            .unwrap_or(0.0);
-        let bucket_qty = (config.total_quantity * bucket_fraction).max(config.min_slice_size);
-        let slice_qty = bucket_qty.min(state.remaining_quantity);
+        // Phase 2: extract scalars — reads only the one bucket element from volume_profile.
+        let (instrument_id, side, slice_qty, limit_price, current_bucket) = {
+            let state = self.algorithms.get(algo_id).unwrap();
+            let config = self.vwap_configs.get(algo_id).unwrap();
 
-        if slice_qty < config.min_slice_size {
-            return;
-        }
+            let elapsed = current_time.0.saturating_sub(state.start_time.0) as u128;
+            let bucket_size = config.duration_nanos as u128 / config.num_buckets as u128;
+            let current_bucket =
+                (elapsed / bucket_size).min(config.num_buckets as u128 - 1) as usize;
 
-        let order_id = self.next_order_id(algo_id);
-        let order_type = if config.limit_price.is_some() {
-            OrderType::Limit
-        } else {
-            OrderType::Market
+            let bucket_fraction =
+                config.volume_profile.get(current_bucket).copied().unwrap_or(0.0);
+            let bucket_qty =
+                (config.total_quantity * bucket_fraction).max(config.min_slice_size);
+            let slice_qty = bucket_qty.min(state.remaining_quantity);
+
+            if slice_qty < config.min_slice_size {
+                return;
+            }
+
+            (
+                state.instrument_id.clone(),
+                state.side,
+                slice_qty,
+                config.limit_price,
+                current_bucket,
+            )
         };
 
-        self.pending_commands
-            .push_back(StrategyCommand::SubmitOrder {
-                order_id: order_id.clone(),
-                instrument_id: state.instrument_id.clone(),
-                side: state.side,
-                order_type,
-                price: config.limit_price,
-                quantity: slice_qty,
-            });
+        // Phase 3: emit and mutate.
+        let order_id = self.next_order_id(algo_id);
+        let order_type = if limit_price.is_some() { OrderType::Limit } else { OrderType::Market };
+
+        self.pending_commands.push_back(StrategyCommand::SubmitOrder {
+            order_id: order_id.clone(),
+            instrument_id,
+            side,
+            order_type,
+            price: limit_price,
+            quantity: slice_qty,
+        });
 
         if let Some(s) = self.algorithms.get_mut(algo_id) {
             s.slices_executed = current_bucket + 1;
-            s.child_order_ids.push(order_id);
+            s.child_order_ids.push(order_id.clone());
         }
+
+        self.order_to_algo.insert(order_id, algo_id.to_string());
     }
 
     fn process_pov(&mut self, algo_id: &str, current_time: UnixNanos) {
-        let state = match self.algorithms.get(algo_id) {
-            Some(s) => s.clone(),
-            None => return,
+        // Phase 1: read-only checks.
+        let should_complete = {
+            let state = match self.algorithms.get(algo_id) {
+                Some(s) if !s.is_complete => s,
+                _ => return,
+            };
+            match self.pov_configs.get(algo_id) {
+                None => return,
+                Some(_) => {}
+            }
+            if current_time.0 < state.next_slice_time.0 {
+                return;
+            }
+            state.remaining_quantity <= 0.0
         };
 
-        let config = match self.pov_configs.get(algo_id) {
-            Some(c) => c.clone(),
-            None => return,
+        if should_complete {
+            if let Some(s) = self.algorithms.get_mut(algo_id) {
+                s.is_complete = true;
+            }
+            return;
+        }
+
+        // Phase 2: extract scalars.
+        let (instrument_id, side, slice_qty, limit_price, min_trade_interval_nanos) = {
+            let state = self.algorithms.get(algo_id).unwrap();
+            let config = self.pov_configs.get(algo_id).unwrap();
+
+            let market_volume = self
+                .volume_tracker
+                .get(&state.instrument_id)
+                .copied()
+                .unwrap_or(0.0);
+
+            if market_volume <= 0.0 {
+                return;
+            }
+
+            let target_qty = market_volume * config.participation_rate;
+            let excess_qty = target_qty - state.filled_quantity;
+
+            if excess_qty <= 0.0 {
+                return;
+            }
+
+            let max_qty =
+                market_volume * config.max_participation_rate - state.filled_quantity;
+            let slice_qty = excess_qty
+                .min(max_qty)
+                .min(state.remaining_quantity);
+
+            if slice_qty <= 0.0 {
+                return;
+            }
+
+            (
+                state.instrument_id.clone(),
+                state.side,
+                slice_qty,
+                config.limit_price,
+                config.min_trade_interval_nanos,
+            )
         };
 
-        if current_time.as_nanos() < state.next_slice_time.as_nanos() {
-            return;
-        }
-
-        let market_volume = self
-            .volume_tracker
-            .get(&state.instrument_id)
-            .copied()
-            .unwrap_or(0.0);
-        if market_volume <= 0.0 {
-            return;
-        }
-
-        let target_qty = market_volume * config.participation_rate;
-        let excess_qty = target_qty - state.filled_quantity;
-
-        if excess_qty <= 0.0 || state.remaining_quantity <= 0.0 {
-            return;
-        }
-
-        let max_qty = market_volume * config.max_participation_rate - state.filled_quantity;
-        let slice_qty = excess_qty.min(max_qty).min(state.remaining_quantity);
-
-        if slice_qty <= 0.0 {
-            return;
-        }
-
+        // Phase 3: emit and mutate.
         let order_id = self.next_order_id(algo_id);
-        let order_type = if config.limit_price.is_some() {
-            OrderType::Limit
-        } else {
-            OrderType::Market
-        };
+        let order_type = if limit_price.is_some() { OrderType::Limit } else { OrderType::Market };
 
-        self.pending_commands
-            .push_back(StrategyCommand::SubmitOrder {
-                order_id: order_id.clone(),
-                instrument_id: state.instrument_id.clone(),
-                side: state.side,
-                order_type,
-                price: config.limit_price,
-                quantity: slice_qty,
-            });
+        self.pending_commands.push_back(StrategyCommand::SubmitOrder {
+            order_id: order_id.clone(),
+            instrument_id,
+            side,
+            order_type,
+            price: limit_price,
+            quantity: slice_qty,
+        });
 
         if let Some(s) = self.algorithms.get_mut(algo_id) {
             s.slices_executed += 1;
-            s.child_order_ids.push(order_id);
-            s.next_slice_time = UnixNanos::from_nanos(
-                current_time.as_nanos() as u64 + config.min_trade_interval_nanos,
-            );
+            s.child_order_ids.push(order_id.clone());
+            s.next_slice_time =
+                UnixNanos::from_nanos(current_time.0 + min_trade_interval_nanos);
         }
+
+        self.order_to_algo.insert(order_id, algo_id.to_string());
     }
 
     pub fn on_fill(&mut self, order_id: &OrderId, fill_qty: f64, fill_price: f64) {
-        for (algo_id, state) in self.algorithms.iter_mut() {
-            if state.child_order_ids.contains(order_id) {
-                state.filled_quantity += fill_qty;
-                state.remaining_quantity -= fill_qty;
-                state.vwap_numerator += fill_qty * fill_price;
+        // O(1) lookup via reverse map instead of linear scan.
+        let algo_id = match self.order_to_algo.get(order_id).cloned() {
+            Some(id) => id,
+            None => return,
+        };
 
-                if state.remaining_quantity <= 0.0 {
-                    state.is_complete = true;
-                }
+        // Phase 1: update fill state, extract iceberg params.
+        let iceberg_refill = {
+            let state = match self.algorithms.get_mut(&algo_id) {
+                Some(s) => s,
+                None => return,
+            };
 
-                if state.algo_type == ExecutionAlgorithmType::Iceberg && !state.is_complete {
-                    if let Some(config) = self.iceberg_configs.get(algo_id) {
-                        if state.remaining_quantity >= config.min_refill_quantity {
-                            let mut display_qty = config.display_quantity;
+            state.filled_quantity += fill_qty;
+            state.remaining_quantity -= fill_qty;
+            state.vwap_numerator += fill_qty * fill_price;
 
-                            if config.randomize_display {
-                                let mut rng = rand::thread_rng();
-                                let range = display_qty * config.randomize_range;
-                                let offset = rng.gen_range(-range..range);
-                                display_qty =
-                                    (display_qty + offset).max(config.min_refill_quantity);
-                            }
-
-                            display_qty = display_qty.min(state.remaining_quantity);
-
-                            let new_order_id = OrderId::new(format!(
-                                "{}-slice-{}",
-                                algo_id, state.slices_executed
-                            ));
-
-                            self.pending_commands
-                                .push_back(StrategyCommand::SubmitOrder {
-                                    order_id: new_order_id.clone(),
-                                    instrument_id: state.instrument_id.clone(),
-                                    side: config.side,
-                                    order_type: OrderType::Limit,
-                                    price: Some(config.limit_price),
-                                    quantity: display_qty,
-                                });
-
-                            state.slices_executed += 1;
-                            state.child_order_ids.push(new_order_id);
-                        }
-                    }
-                }
-
-                break;
+            if state.remaining_quantity <= 0.0 {
+                state.is_complete = true;
+                return;
             }
+
+            if state.algo_type != ExecutionAlgorithmType::Iceberg {
+                return;
+            }
+
+            // Extract iceberg params before we drop the state borrow.
+            let remaining = state.remaining_quantity;
+            let slices_executed = state.slices_executed;
+            let instrument_id = state.instrument_id.clone();
+            (remaining, slices_executed, instrument_id)
+        }; // state borrow ends here
+
+        let (remaining, slices_executed, instrument_id) = iceberg_refill;
+
+        // Phase 2: compute refill order using iceberg config (separate borrow).
+        let refill = if let Some(config) = self.iceberg_configs.get(&algo_id) {
+            if remaining >= config.min_refill_quantity {
+                let mut display_qty = config.display_quantity;
+                if config.randomize_display {
+                    let mut rng = rand::thread_rng();
+                    let range = display_qty * config.randomize_range;
+                    display_qty =
+                        (display_qty + rng.gen_range(-range..range))
+                            .max(config.min_refill_quantity);
+                }
+                display_qty = display_qty.min(remaining);
+                let new_id = OrderId::new(format!("{}-slice-{}", algo_id, slices_executed));
+                Some((new_id, display_qty, config.side, config.limit_price))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        // Phase 3: emit and update state.
+        if let Some((new_order_id, display_qty, side, limit_price)) = refill {
+            self.pending_commands.push_back(StrategyCommand::SubmitOrder {
+                order_id: new_order_id.clone(),
+                instrument_id,
+                side,
+                order_type: OrderType::Limit,
+                price: Some(limit_price),
+                quantity: display_qty,
+            });
+
+            if let Some(s) = self.algorithms.get_mut(&algo_id) {
+                s.slices_executed += 1;
+                s.child_order_ids.push(new_order_id.clone());
+            }
+
+            self.order_to_algo.insert(new_order_id, algo_id);
         }
     }
 

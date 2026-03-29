@@ -90,7 +90,17 @@ def _make_trader(private_key: Optional[str], testnet: bool) -> Optional[Any]:
     if not private_key:
         return None
     from .types import HyperliquidTrader
-    return HyperliquidTrader(private_key, testnet=testnet)
+    try:
+        cfg = load_project_config()
+        hl = cfg.get("hyperliquid", {})
+    except FileNotFoundError:
+        hl = {}
+    return HyperliquidTrader(
+        private_key,
+        testnet=testnet,
+        ws_url=hl.get("ws_url") or None,
+        rest_url=hl.get("rest_url") or None,
+    )
 
 
 def _execute_orders(

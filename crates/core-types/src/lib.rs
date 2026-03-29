@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::ops::{Add, Div, Mul, Neg, Sub};
+use std::sync::Arc;
 
 // Pre-computed reciprocals for fast division
 const SCALE_RECIPROCALS: [f64; 19] = [
@@ -65,12 +66,12 @@ impl fmt::Display for InstrumentType {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct InstrumentId {
     pub venue: Venue,
-    pub symbol: String,
+    pub symbol: Arc<str>,
     pub kind: InstrumentType,
 }
 
 impl InstrumentId {
-    pub fn new(venue: Venue, symbol: impl Into<String>, kind: InstrumentType) -> Self {
+    pub fn new(venue: Venue, symbol: impl Into<Arc<str>>, kind: InstrumentType) -> Self {
         Self {
             venue,
             symbol: symbol.into(),
@@ -80,35 +81,29 @@ impl InstrumentId {
 
     #[inline]
     pub fn parse(s: &str) -> Option<Self> {
-        // Use splitn to avoid allocating Vec
         let mut parts = s.splitn(2, ':');
         let venue_str = parts.next()?;
         let rest = parts.next()?;
-        
-        // Direct byte comparison - no allocations
+
         let venue = match venue_str.as_bytes() {
             b"HYPERLIQUID" | b"hyperliquid" | b"Hyperliquid" => Venue::Hyperliquid,
-            b"LIGHTER" | b"lighter" | b"Lighter" => Venue::Lighter,
-            b"POLYMARKET" | b"polymarket" | b"Polymarket" => Venue::Polymarket,
-            b"SIMULATED" | b"simulated" | b"Simulated" => Venue::Simulated,
+            b"LIGHTER"     | b"lighter"     | b"Lighter"     => Venue::Lighter,
+            b"POLYMARKET"  | b"polymarket"  | b"Polymarket"  => Venue::Polymarket,
+            b"SIMULATED"   | b"simulated"   | b"Simulated"   => Venue::Simulated,
             _ => return None,
         };
-        
+
         let mut sym_parts = rest.splitn(2, '.');
         let symbol = sym_parts.next()?;
         let kind_str = sym_parts.next()?;
-        
+
         let kind = match kind_str.as_bytes() {
             b"PERP" | b"perp" | b"Perp" => InstrumentType::Perp,
             b"SPOT" | b"spot" | b"Spot" => InstrumentType::Spot,
             _ => return None,
         };
-        
-        Some(Self {
-            venue,
-            symbol: symbol.to_string(),
-            kind,
-        })
+
+        Some(Self { venue, symbol: symbol.into(), kind })
     }
 }
 
@@ -231,41 +226,39 @@ impl FixedPoint {
     }
 
     pub fn from_str(s: &str, scale: u8) -> Option<Self> {
-        let parts: Vec<&str> = s.split('.').collect();
         let multiplier = 10_i64.pow(scale as u32);
-
-        match parts.len() {
-            1 => {
-                let int_part: i64 = parts[0].parse().ok()?;
-                Some(Self {
-                    value: int_part * multiplier,
-                    scale,
-                })
-            }
-            2 => {
-                let negative = parts[0].starts_with('-');
-                let int_part: i64 = parts[0].parse().ok()?;
-                let frac_str = parts[1];
-                let frac_scale = frac_str.len() as u32;
-
-                let frac_value: i64 = if frac_scale <= scale as u32 {
-                    let padding = 10_i64.pow(scale as u32 - frac_scale);
-                    frac_str.parse::<i64>().ok()? * padding
-                } else {
-                    let divisor = 10_i64.pow(frac_scale - scale as u32);
-                    frac_str.parse::<i64>().ok()? / divisor
-                };
-
-                let value = if negative {
-                    int_part * multiplier - frac_value
-                } else {
-                    int_part * multiplier + frac_value
-                };
-
-                Some(Self { value, scale })
-            }
-            _ => None,
+        let mut parts = s.splitn(3, '.');
+        let int_str = parts.next()?;
+        let frac_str = parts.next();
+        if parts.next().is_some() {
+            return None;
         }
+
+        let int_part: i64 = int_str.parse().ok()?;
+        let Some(frac_str) = frac_str else {
+            return Some(Self {
+                value: int_part * multiplier,
+                scale,
+            });
+        };
+
+        let negative = int_str.starts_with('-');
+        let frac_scale = frac_str.len() as u32;
+        let frac_value: i64 = if frac_scale <= scale as u32 {
+            let padding = 10_i64.pow(scale as u32 - frac_scale);
+            frac_str.parse::<i64>().ok()? * padding
+        } else {
+            let divisor = 10_i64.pow(frac_scale - scale as u32);
+            frac_str.parse::<i64>().ok()? / divisor
+        };
+
+        let value = if negative {
+            int_part * multiplier - frac_value
+        } else {
+            int_part * multiplier + frac_value
+        };
+
+        Some(Self { value, scale })
     }
 
     #[inline(always)]

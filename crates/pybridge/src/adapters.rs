@@ -20,13 +20,21 @@ pub struct PyHyperliquidClient {
 #[pymethods]
 impl PyHyperliquidClient {
     #[new]
-    #[pyo3(signature = (testnet=false))]
-    pub fn new(testnet: bool) -> PyResult<Self> {
-        let config = if testnet {
+    #[pyo3(signature = (testnet=false, ws_url=None, rest_url=None))]
+    pub fn new(testnet: bool, ws_url: Option<String>, rest_url: Option<String>) -> PyResult<Self> {
+        let mut config = if testnet {
             HyperliquidConfig::testnet()
         } else {
             HyperliquidConfig::mainnet()
         };
+
+        if let Some(url) = ws_url {
+            config.ws_url = url;
+        }
+
+        if let Some(url) = rest_url {
+            config.rest_url = url;
+        }
 
         let runtime = tokio::runtime::Runtime::new()
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to create runtime: {}", e)))?;
@@ -848,5 +856,240 @@ impl PyPostgresEventStore {
 
     pub fn __repr__(&self) -> String {
         "PostgresEventStore(connected)".to_string()
+    }
+}
+
+use neleus_adapters_polymarket::{
+    PolymarketBook, PolymarketBookLevel, PolymarketConfig, PolymarketMarket, PolymarketTrade,
+    PolymarketClient as RustPolymarketClient,
+};
+
+#[pyclass(name = "PolymarketMarket")]
+#[derive(Debug, Clone)]
+pub struct PyPolymarketMarket {
+    #[pyo3(get)]
+    pub token_id: String,
+    #[pyo3(get)]
+    pub condition_id: String,
+    #[pyo3(get)]
+    pub market_slug: String,
+    #[pyo3(get)]
+    pub question: String,
+    #[pyo3(get)]
+    pub end_date_iso: Option<String>,
+    #[pyo3(get)]
+    pub description: Option<String>,
+    #[pyo3(get)]
+    pub outcomes: Vec<String>,
+    #[pyo3(get)]
+    pub outcome_prices: Option<Vec<String>>,
+    #[pyo3(get)]
+    pub volume: Option<String>,
+    #[pyo3(get)]
+    pub active: bool,
+}
+
+impl From<PolymarketMarket> for PyPolymarketMarket {
+    fn from(m: PolymarketMarket) -> Self {
+        Self {
+            token_id: m.token_id,
+            condition_id: m.condition_id,
+            market_slug: m.market_slug,
+            question: m.question,
+            end_date_iso: m.end_date_iso,
+            description: m.description,
+            outcomes: m.outcomes,
+            outcome_prices: m.outcome_prices,
+            volume: m.volume,
+            active: m.active,
+        }
+    }
+}
+
+#[pyclass(name = "PolymarketBookLevel")]
+#[derive(Debug, Clone)]
+pub struct PyPolymarketBookLevel {
+    #[pyo3(get)]
+    pub price: f64,
+    #[pyo3(get)]
+    pub size: f64,
+}
+
+impl From<PolymarketBookLevel> for PyPolymarketBookLevel {
+    fn from(l: PolymarketBookLevel) -> Self {
+        Self {
+            price: l.price.parse().unwrap_or(0.0),
+            size: l.size.parse().unwrap_or(0.0),
+        }
+    }
+}
+
+#[pyclass(name = "PolymarketBook")]
+#[derive(Debug, Clone)]
+pub struct PyPolymarketBook {
+    #[pyo3(get)]
+    pub market: String,
+    #[pyo3(get)]
+    pub asset_id: String,
+    #[pyo3(get)]
+    pub hash: String,
+    #[pyo3(get)]
+    pub bids: Vec<PyPolymarketBookLevel>,
+    #[pyo3(get)]
+    pub asks: Vec<PyPolymarketBookLevel>,
+    #[pyo3(get)]
+    pub timestamp: String,
+}
+
+impl From<PolymarketBook> for PyPolymarketBook {
+    fn from(b: PolymarketBook) -> Self {
+        Self {
+            market: b.market,
+            asset_id: b.asset_id,
+            hash: b.hash,
+            bids: b.bids.into_iter().map(PyPolymarketBookLevel::from).collect(),
+            asks: b.asks.into_iter().map(PyPolymarketBookLevel::from).collect(),
+            timestamp: b.timestamp,
+        }
+    }
+}
+
+#[pyclass(name = "PolymarketTrade")]
+#[derive(Debug, Clone)]
+pub struct PyPolymarketTrade {
+    #[pyo3(get)]
+    pub id: String,
+    #[pyo3(get)]
+    pub market: String,
+    #[pyo3(get)]
+    pub asset_id: String,
+    #[pyo3(get)]
+    pub side: String,
+    #[pyo3(get)]
+    pub price: f64,
+    #[pyo3(get)]
+    pub size: f64,
+    #[pyo3(get)]
+    pub fee_rate_bps: f64,
+    #[pyo3(get)]
+    pub timestamp: String,
+    #[pyo3(get)]
+    pub maker_address: String,
+    #[pyo3(get)]
+    pub taker_address: String,
+}
+
+impl From<PolymarketTrade> for PyPolymarketTrade {
+    fn from(t: PolymarketTrade) -> Self {
+        Self {
+            id: t.id,
+            market: t.market,
+            asset_id: t.asset_id,
+            side: t.side,
+            price: t.price.parse().unwrap_or(0.0),
+            size: t.size.parse().unwrap_or(0.0),
+            fee_rate_bps: t.fee_rate_bps.parse().unwrap_or(0.0),
+            timestamp: t.timestamp,
+            maker_address: t.maker_address,
+            taker_address: t.taker_address,
+        }
+    }
+}
+
+#[pyclass(name = "PolymarketClient")]
+pub struct PyPolymarketClient {
+    client: Arc<tokio::sync::Mutex<RustPolymarketClient>>,
+    runtime: tokio::runtime::Runtime,
+}
+
+#[pymethods]
+impl PyPolymarketClient {
+    #[new]
+    #[pyo3(signature = (testnet=false, clob_url=None, gamma_url=None, ws_url=None, api_key=None, api_secret=None, api_passphrase=None))]
+    pub fn new(
+        testnet: bool,
+        clob_url: Option<String>,
+        gamma_url: Option<String>,
+        ws_url: Option<String>,
+        api_key: Option<String>,
+        api_secret: Option<String>,
+        api_passphrase: Option<String>,
+    ) -> PyResult<Self> {
+        let mut config = if testnet {
+            PolymarketConfig::testnet()
+        } else {
+            PolymarketConfig::mainnet()
+        };
+
+        if let Some(url) = clob_url {
+            config.clob_url = url;
+        }
+        if let Some(url) = gamma_url {
+            config.gamma_url = url;
+        }
+        if let Some(url) = ws_url {
+            config.ws_url = url;
+        }
+        
+        if let (Some(ak), Some(asec), Some(apass)) = (api_key, api_secret, api_passphrase) {
+            config = config.with_api_credentials(ak, asec, apass);
+        }
+
+        let runtime = tokio::runtime::Runtime::new()
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to create runtime: {}", e)))?;
+
+        let client = Arc::new(tokio::sync::Mutex::new(RustPolymarketClient::new(config)));
+        Ok(Self { client, runtime })
+    }
+
+    pub fn get_price(&self, token_id: &str) -> PyResult<f64> {
+        let client_arc = self.client.clone();
+        let token_id = token_id.to_string();
+        let response = self
+            .runtime
+            .block_on(async move { client_arc.lock().await.get_price(&token_id).await })
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to fetch price: {:?}", e)))?;
+        response.price.parse::<f64>().map_err(|_| PyRuntimeError::new_err("Invalid price format"))
+    }
+
+    pub fn get_midpoint(&self, token_id: &str) -> PyResult<f64> {
+        let client_arc = self.client.clone();
+        let token_id = token_id.to_string();
+        let response = self
+            .runtime
+            .block_on(async move { client_arc.lock().await.get_midpoint(&token_id).await })
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to fetch midpoint: {:?}", e)))?;
+        response.mid.parse::<f64>().map_err(|_| PyRuntimeError::new_err("Invalid midpoint format"))
+    }
+
+    pub fn get_book(&self, token_id: &str) -> PyResult<PyPolymarketBook> {
+        let client_arc = self.client.clone();
+        let token_id = token_id.to_string();
+        let book = self
+            .runtime
+            .block_on(async move { client_arc.lock().await.get_book(&token_id).await })
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to fetch book: {:?}", e)))?;
+        Ok(PyPolymarketBook::from(book))
+    }
+
+    #[pyo3(signature = (market, limit=None))]
+    pub fn get_trades(&self, market: &str, limit: Option<u32>) -> PyResult<Vec<PyPolymarketTrade>> {
+        let client_arc = self.client.clone();
+        let market = market.to_string();
+        let trades = self
+            .runtime
+            .block_on(async move { client_arc.lock().await.get_trades(&market, limit).await })
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to fetch trades: {:?}", e)))?;
+        Ok(trades.into_iter().map(PyPolymarketTrade::from).collect())
+    }
+
+    #[pyo3(signature = (limit=None))]
+    pub fn get_markets(&self, limit: Option<u32>) -> PyResult<Vec<PyPolymarketMarket>> {
+        let client_arc = self.client.clone();
+        let markets = self
+            .runtime
+            .block_on(async move { client_arc.lock().await.get_markets(limit).await })
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to fetch markets: {:?}", e)))?;
+        Ok(markets.into_iter().map(PyPolymarketMarket::from).collect())
     }
 }

@@ -222,8 +222,23 @@ def _apply_env_overrides(config: Dict[str, Any]) -> Dict[str, Any]:
         "NELEUS_DB_POOL_SIZE": ("database", "pool_size", int),
         "HYPERLIQUID_SIGNER_PRIVATE_KEY": ("hyperliquid", "signer_private_key", str),
         "HYPERLIQUID_ACCOUNT_ADDRESS": ("hyperliquid", "account_address", str),
+        "HYPERLIQUID_WS_URL": ("hyperliquid", "ws_url", str),
+        "HYPERLIQUID_REST_URL": ("hyperliquid", "rest_url", str),
         "HYPERLIQUID_TESTNET": (
             "hyperliquid",
+            "testnet",
+            lambda v: v.strip().lower() in ("true", "1", "yes"),
+        ),
+        "POLYMARKET_CLOB_URL": ("polymarket", "clob_url", str),
+        "POLYMARKET_GAMMA_URL": ("polymarket", "gamma_url", str),
+        "POLYMARKET_WS_URL": ("polymarket", "ws_url", str),
+        "POLYMARKET_SIGNER_ADDRESS": ("polymarket", "signer_address", str),
+        "POLYMARKET_PRIVATE_KEY": ("polymarket", "private_key", str),
+        "POLYMARKET_API_KEY": ("polymarket", "api_key", str),
+        "POLYMARKET_API_SECRET": ("polymarket", "api_secret", str),
+        "POLYMARKET_API_PASSPHRASE": ("polymarket", "api_passphrase", str),
+        "POLYMARKET_TESTNET": (
+            "polymarket",
             "testnet",
             lambda v: v.strip().lower() in ("true", "1", "yes"),
         ),
@@ -261,6 +276,28 @@ def get_hyperliquid_credentials(config: Dict[str, Any]) -> Dict[str, Optional[st
         "account_address": str(raw["account_address"])
         if raw.get("account_address")
         else os.environ.get("HYPERLIQUID_ACCOUNT_ADDRESS"),
+    }
+
+
+def get_polymarket_credentials(config: Dict[str, Any]) -> Dict[str, Optional[str]]:
+    """Return Polymarket credentials resolved from config then environment."""
+    raw = config.get("polymarket", {})
+    return {
+        "signer_address": str(raw["signer_address"])
+        if raw.get("signer_address")
+        else os.environ.get("POLYMARKET_SIGNER_ADDRESS"),
+        "private_key": str(raw["private_key"])
+        if raw.get("private_key")
+        else os.environ.get("POLYMARKET_PRIVATE_KEY"),
+        "api_key": str(raw["api_key"])
+        if raw.get("api_key")
+        else os.environ.get("POLYMARKET_API_KEY"),
+        "api_secret": str(raw["api_secret"])
+        if raw.get("api_secret")
+        else os.environ.get("POLYMARKET_API_SECRET"),
+        "api_passphrase": str(raw["api_passphrase"])
+        if raw.get("api_passphrase")
+        else os.environ.get("POLYMARKET_API_PASSPHRASE"),
     }
 
 
@@ -436,6 +473,7 @@ __all__ = [
     "discover_strategies",
     "get_db_config",
     "get_hyperliquid_credentials",
+    "get_polymarket_credentials",
     # Schema
     "CONFIG_SCHEMA",
 ]

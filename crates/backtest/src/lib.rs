@@ -46,6 +46,7 @@ mod tests {
     use super::*;
     use neleus_core_engine::OrderSide;
     use neleus_core_types::{InstrumentId, InstrumentType, UnixNanos, Venue};
+    use std::time::Instant;
 
     #[test]
     fn test_in_memory_feed() {
@@ -243,5 +244,42 @@ mod tests {
 
         let third = merger.next().unwrap();
         assert_eq!(third.timestamp.as_millis(), 3000);
+    }
+
+    #[test]
+    #[ignore = "manual performance harness"]
+    fn bench_backtest_node_hot_path() {
+        let points = 100_000u64;
+        let trades: Vec<_> = (0..points)
+            .map(|i| {
+                let ts = (i + 1) * 1000;
+                let price = 50_000.0 + (i % 200) as f64;
+                let qty = 1.0 + (i % 10) as f64 * 0.1;
+                let is_buy = i % 2 == 0;
+                (ts, "BTC", price, qty, is_buy)
+            })
+            .collect();
+
+        let config = BacktestConfig {
+            start_time: UnixNanos::from_millis(0),
+            end_time: UnixNanos::from_millis(points * 1000 + 1000),
+            ..Default::default()
+        };
+
+        let mut node = BacktestNode::new(config);
+        node.set_data_feed(Box::new(InMemoryDataFeed::from_trades(trades)));
+
+        let started = Instant::now();
+        let results = node.run();
+        let elapsed = started.elapsed();
+
+        eprintln!(
+            "processed {} points in {:?} ({:.0} pts/sec)",
+            results.data_points_processed,
+            elapsed,
+            results.data_points_processed as f64 / elapsed.as_secs_f64()
+        );
+
+        assert_eq!(results.data_points_processed, points);
     }
 }

@@ -36,7 +36,7 @@ impl LighterAdapter {
     pub fn to_instrument_id(&self, market_id: u32) -> Option<InstrumentId> {
         self.rest_public
             .get_market(market_id)
-            .map(|m| InstrumentId::new(Venue::Lighter, &m.symbol, InstrumentType::Perp))
+            .map(|m| InstrumentId::new(Venue::Lighter, m.symbol.as_str(), InstrumentType::Perp))
     }
 
     pub fn to_market_id(&self, symbol: &str) -> Option<u32> {

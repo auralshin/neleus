@@ -85,7 +85,7 @@ pub struct InMemoryDataFeed {
 
 impl InMemoryDataFeed {
     pub fn new(mut data: Vec<HistoricalDataPoint>) -> Self {
-        data.sort_by(|a, b| {
+        data.sort_unstable_by(|a, b| {
             a.timestamp
                 .cmp(&b.timestamp)
                 .then_with(|| a.sequence.cmp(&b.sequence))
@@ -190,9 +190,9 @@ impl CsvDataFeed {
                 .get(4)
                 .ok_or(CsvError::MissingColumn("side".into()))?;
 
-            let side = match side_str.to_lowercase().as_str() {
-                "buy" | "b" | "1" => OrderSide::Buy,
-                "sell" | "s" | "0" | "-1" => OrderSide::Sell,
+            let side = match side_str.as_bytes() {
+                b"buy" | b"BUY" | b"Buy" | b"b" | b"B" | b"1" => OrderSide::Buy,
+                b"sell" | b"SELL" | b"Sell" | b"s" | b"S" | b"0" | b"-1" => OrderSide::Sell,
                 _ => return Err(CsvError::ParseError(format!("invalid side: {}", side_str))),
             };
 
@@ -368,28 +368,25 @@ pub mod hyperliquid_feed {
         ) -> Result<usize, HyperliquidError> {
             let count = self.inner.load(config, start_time_ms, end_time_ms).await?;
 
-            self.data_cache = self
-                .inner
-                .data()
-                .iter()
-                .enumerate()
-                .map(|(seq, point)| HistoricalDataPoint {
+            let raw_data = self.inner.data();
+            let instrument_id =
+                InstrumentId::new(Venue::Hyperliquid, self.inner.coin(), InstrumentType::Perp);
+            let mut data_cache = Vec::with_capacity(raw_data.len());
+            for (seq, point) in raw_data.iter().enumerate() {
+                data_cache.push(HistoricalDataPoint {
                     timestamp: UnixNanos::from_millis(point.timestamp_ms),
                     sequence: seq as u64,
                     data: HistoricalData::Bar {
-                        instrument_id: InstrumentId::new(
-                            Venue::Hyperliquid,
-                            self.inner.coin(),
-                            InstrumentType::Perp,
-                        ),
+                        instrument_id: instrument_id.clone(),
                         open: point.open,
                         high: point.high,
                         low: point.low,
                         close: point.close,
                         volume: point.volume,
                     },
-                })
-                .collect();
+                });
+            }
+            self.data_cache = data_cache;
 
             self.index = 0;
             Ok(count)

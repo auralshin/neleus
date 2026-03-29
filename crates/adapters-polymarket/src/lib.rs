@@ -505,7 +505,7 @@ impl PolymarketDataAdapter {
                 match sub {
                     DataSubscription::OrderBook { instrument_id, .. } => {
                         // instrument_id.symbol should contain the token_id for Polymarket
-                        Some(WsSubscription::market(instrument_id.symbol.clone()))
+                        Some(WsSubscription::market(instrument_id.symbol.to_string()))
                     }
                     _ => None,
                 }

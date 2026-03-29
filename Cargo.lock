@@ -1988,6 +1988,7 @@ version = "0.1.14"
 dependencies = [
  "chrono",
  "neleus-adapters-hyperliquid",
+ "neleus-adapters-polymarket",
  "neleus-backtest",
  "neleus-core-bus",
  "neleus-core-domain",

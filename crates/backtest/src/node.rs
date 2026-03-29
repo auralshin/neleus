@@ -29,6 +29,10 @@ pub struct BacktestNode {
 
     current_equity: f64,
 
+    total_realized_pnl: f64,
+
+    total_unrealized_pnl: f64,
+
     positions: HashMap<InstrumentId, PositionTracker>,
 
     /// Map order_id -> (instrument_id, side) for fill processing
@@ -162,6 +166,8 @@ impl BacktestNode {
             data_count: 0,
             results: BacktestResults::new(config.initial_balance, start_time),
             current_equity: config.initial_balance,
+            total_realized_pnl: 0.0,
+            total_unrealized_pnl: 0.0,
             positions: HashMap::new(),
             order_info: HashMap::new(),
             config,
@@ -190,12 +196,18 @@ impl BacktestNode {
                 break;
             }
 
-            self.current_time = data_point.timestamp;
+            let HistoricalDataPoint {
+                timestamp,
+                sequence: _,
+                data,
+            } = data_point;
+
+            self.current_time = timestamp;
             self.engine.advance_time(self.current_time);
 
-            self.venue.on_data(&data_point.data, self.current_time);
+            self.venue.on_data(&data, self.current_time);
 
-            if let Some(market_event) = self.to_market_event(&data_point.data, self.current_time) {
+            if let Some(market_event) = Self::into_market_event(data, self.current_time) {
                 let commands = self.engine.on_market_data(market_event);
                 self.process_strategy_commands(commands);
             }
@@ -203,7 +215,7 @@ impl BacktestNode {
             let timer_commands = self.engine.tick_collect_commands();
             self.process_strategy_commands(timer_commands);
 
-            for event in self.venue.drain_events() {
+            while let Some(event) = self.venue.pop_event() {
                 self.process_trading_event(&event);
                 let commands = self.engine.on_trading_event(&event);
                 self.process_strategy_commands(commands);
@@ -218,7 +230,7 @@ impl BacktestNode {
         &self.results
     }
 
-    fn to_market_event(&self, data: &HistoricalData, ts: UnixNanos) -> Option<MarketDataEvent> {
+    fn into_market_event(data: HistoricalData, ts: UnixNanos) -> Option<MarketDataEvent> {
         match data {
             HistoricalData::Trade {
                 instrument_id,
@@ -226,10 +238,10 @@ impl BacktestNode {
                 quantity,
                 side,
             } => Some(MarketDataEvent::Trade {
-                instrument_id: instrument_id.clone(),
-                price: *price,
-                quantity: *quantity,
-                side: *side,
+                instrument_id,
+                price,
+                quantity,
+                side,
                 ts,
             }),
             HistoricalData::Quote {
@@ -239,11 +251,11 @@ impl BacktestNode {
                 ask_price,
                 ask_size,
             } => Some(MarketDataEvent::Quote {
-                instrument_id: instrument_id.clone(),
-                bid_price: *bid_price,
-                bid_size: *bid_size,
-                ask_price: *ask_price,
-                ask_size: *ask_size,
+                instrument_id,
+                bid_price,
+                bid_size,
+                ask_price,
+                ask_size,
                 ts,
             }),
             HistoricalData::BookSnapshot {
@@ -251,9 +263,9 @@ impl BacktestNode {
                 bids,
                 asks,
             } => Some(MarketDataEvent::BookUpdate {
-                instrument_id: instrument_id.clone(),
-                bids: bids.clone(),
-                asks: asks.clone(),
+                instrument_id,
+                bids,
+                asks,
                 ts,
             }),
             HistoricalData::Bar {
@@ -264,9 +276,9 @@ impl BacktestNode {
                 close,
                 volume,
             } => Some(MarketDataEvent::Trade {
-                instrument_id: instrument_id.clone(),
-                price: *close,
-                quantity: *volume,
+                instrument_id,
+                price: close,
+                quantity: volume,
                 side: OrderSide::Buy,
                 ts,
             }),
@@ -311,7 +323,6 @@ impl BacktestNode {
                 ts,
             } => {
                 let commission = fill_price * fill_quantity * self.config.commission_rate;
-                self.results.total_trades += 1;
                 self.results.total_commission += commission;
                 self.results.total_volume += fill_price * fill_quantity;
 
@@ -321,8 +332,11 @@ impl BacktestNode {
                         .positions
                         .entry(instrument_id.clone())
                         .or_insert_with(PositionTracker::new);
+                    let previous_unrealized = position.unrealized_pnl;
 
                     let realized_pnl = position.on_fill(*side, *fill_price, *fill_quantity);
+                    self.total_realized_pnl += realized_pnl;
+                    self.total_unrealized_pnl += position.unrealized_pnl - previous_unrealized;
 
                     // Remove order info if fully filled
                     if *remaining_quantity < 1e-10 {
@@ -334,8 +348,10 @@ impl BacktestNode {
                     0.0
                 };
 
-                // Update equity
-                self.current_equity += trade_pnl - commission;
+                self.current_equity = self.config.initial_balance
+                    + self.total_realized_pnl
+                    + self.total_unrealized_pnl
+                    - self.results.total_commission;
 
                 // Record trade
                 if trade_pnl > 0.0 {
@@ -351,17 +367,15 @@ impl BacktestNode {
                 instrument_id,
                 quantity: _,
                 avg_price: _,
-                unrealized_pnl: _,
+                unrealized_pnl,
                 ts: _,
             } => {
-                // Update unrealized P&L for mark-to-market
-                if let Some(_position) = self.positions.get_mut(instrument_id) {
-                    // Use last price from position
-                    let total_unrealized: f64 =
-                        self.positions.values().map(|p| p.unrealized_pnl).sum();
-                    // Update current equity with unrealized
-                    let realized: f64 = self.positions.values().map(|p| p.realized_pnl).sum();
-                    self.current_equity = self.config.initial_balance + realized + total_unrealized
+                if let Some(position) = self.positions.get_mut(instrument_id) {
+                    self.total_unrealized_pnl += unrealized_pnl - position.unrealized_pnl;
+                    position.unrealized_pnl = *unrealized_pnl;
+                    self.current_equity = self.config.initial_balance
+                        + self.total_realized_pnl
+                        + self.total_unrealized_pnl
                         - self.results.total_commission;
                 }
             }
@@ -373,23 +387,21 @@ impl BacktestNode {
     #[allow(dead_code)]
     fn update_mark_to_market(&mut self, instrument_id: &InstrumentId, price: f64) {
         if let Some(position) = self.positions.get_mut(instrument_id) {
+            let previous_unrealized = position.unrealized_pnl;
             position.update_unrealized_pnl(price);
+            self.total_unrealized_pnl += position.unrealized_pnl - previous_unrealized;
         }
-        // Recalculate total equity
-        let total_realized: f64 = self.positions.values().map(|p| p.realized_pnl).sum();
-        let total_unrealized: f64 = self.positions.values().map(|p| p.unrealized_pnl).sum();
-        self.current_equity = self.config.initial_balance + total_realized + total_unrealized
+        self.current_equity = self.config.initial_balance
+            + self.total_realized_pnl
+            + self.total_unrealized_pnl
             - self.results.total_commission;
     }
 
     fn finalize_results(&mut self) {
-        // Calculate final P&L from all positions
-        let total_realized: f64 = self.positions.values().map(|p| p.realized_pnl).sum();
-        let total_unrealized: f64 = self.positions.values().map(|p| p.unrealized_pnl).sum();
-
         self.results.data_points_processed = self.data_count;
         self.results.end_time = self.current_time;
-        self.results.total_pnl = total_realized + total_unrealized - self.results.total_commission;
+        self.results.total_pnl =
+            self.total_realized_pnl + self.total_unrealized_pnl - self.results.total_commission;
         self.results.final_balance = self.config.initial_balance + self.results.total_pnl;
         self.current_equity = self.results.final_balance;
         self.results.finalize();

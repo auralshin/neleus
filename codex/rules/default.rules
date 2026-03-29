@@ -1,0 +1,264 @@
+# Repository-local Codex execution policy for Neleus.
+# Keep common verification commands frictionless, but require approval for
+# publishing or environment-changing operations.
+
+prefix_rule(
+    pattern = ["cargo", ["check", "test", "fmt", "clippy", "build"]],
+    decision = "allow",
+    justification = "Standard Rust validation and build commands are expected during local development.",
+    match = [
+        "cargo check",
+        "cargo test --workspace",
+        "cargo fmt --all",
+        "cargo clippy --workspace --all-targets",
+        "cargo build --release",
+    ],
+    not_match = [
+        "cargo run",
+        "cargo install cargo-nextest",
+    ],
+)
+
+prefix_rule(
+    pattern = ["cargo", ["metadata", "tree", "doc"]],
+    decision = "allow",
+    justification = "Read-only Cargo inspection and documentation commands are normal repository workflows.",
+    match = [
+        "cargo metadata --format-version 1",
+        "cargo tree -p neleus-pybridge",
+        "cargo doc --no-deps",
+    ],
+)
+
+prefix_rule(
+    pattern = ["cargo", ["run", "bench", "clean"]],
+    decision = "prompt",
+    justification = "These Cargo commands execute binaries, benchmarks, or mutate build artifacts and should stay explicitly approved.",
+    match = [
+        "cargo run -p neleus-pybridge",
+        "cargo bench",
+        "cargo clean",
+    ],
+)
+
+prefix_rule(
+    pattern = [["python", "python3"], "-m", ["pytest", "ruff", "mypy"]],
+    decision = "allow",
+    justification = "Python validation commands are expected during local development.",
+    match = [
+        "python -m pytest",
+        "python3 -m pytest python",
+        "python -m ruff check python",
+        "python3 -m mypy python/neleus",
+    ],
+    not_match = [
+        "python -m pip install -e python",
+        "python3 -m build",
+    ],
+)
+
+prefix_rule(
+    pattern = [["pytest", "ruff", "mypy", "black"]],
+    decision = "allow",
+    justification = "Direct Python quality-tool entrypoints are normal repository workflows.",
+    match = [
+        "pytest",
+        "ruff check python",
+        "mypy python/neleus",
+        "black --check python",
+    ],
+)
+
+prefix_rule(
+    pattern = [["python", "python3"], "-m", ["venv", "build"]],
+    decision = "prompt",
+    justification = "Creating environments or build artifacts mutates the local environment and should stay explicitly approved.",
+    match = [
+        "python3 -m venv .venv",
+        "python -m build",
+    ],
+)
+
+prefix_rule(
+    pattern = ["maturin", ["develop", "build"]],
+    decision = "allow",
+    justification = "Building the Rust-backed Python extension is a normal repository workflow.",
+    match = [
+        "maturin develop --release",
+        "maturin build --profile packaging --strip",
+    ],
+    not_match = [
+        "maturin publish",
+    ],
+)
+
+prefix_rule(
+    pattern = ["twine", "check"],
+    decision = "allow",
+    justification = "Artifact validation is a normal release-preparation workflow.",
+    match = [
+        "twine check dist/*",
+    ],
+)
+
+prefix_rule(
+    pattern = ["mkdocs", ["build", "serve"]],
+    decision = "allow",
+    justification = "Docs builds and local preview are normal repository workflows.",
+    match = [
+        "mkdocs build",
+        "mkdocs serve",
+    ],
+    not_match = [
+        "python -m mkdocs build",
+    ],
+)
+
+prefix_rule(
+    pattern = [["pip", "pip3"], "install"],
+    decision = "prompt",
+    justification = "Dependency installation changes the local environment and may access the network.",
+    match = [
+        "pip install maturin",
+        "pip3 install -r docs/requirements.txt",
+    ],
+)
+
+prefix_rule(
+    pattern = [["python", "python3"], "-m", "pip", "install"],
+    decision = "prompt",
+    justification = "Dependency installation changes the local environment and may access the network.",
+    match = [
+        "python -m pip install --upgrade pip",
+        "python3 -m pip install -e python",
+    ],
+)
+
+prefix_rule(
+    pattern = ["git", ["status", "diff", "log", "show", "branch", "rev-parse", "fetch"]],
+    decision = "allow",
+    justification = "Read-only Git inspection commands are normal repository workflows.",
+    match = [
+        "git status --short",
+        "git diff --stat",
+        "git log --oneline -5",
+        "git show HEAD",
+        "git branch --show-current",
+        "git rev-parse HEAD",
+        "git fetch origin",
+    ],
+)
+
+prefix_rule(
+    pattern = ["git", "push"],
+    decision = "prompt",
+    justification = "Pushing changes affects the remote repository and should stay explicitly approved.",
+    match = [
+        "git push",
+        "git push origin main",
+    ],
+)
+
+prefix_rule(
+    pattern = ["git", ["rebase", "cherry-pick", "merge", "commit", "tag"]],
+    decision = "prompt",
+    justification = "History-changing Git operations should stay explicitly approved.",
+    match = [
+        "git rebase main",
+        "git cherry-pick abc1234",
+        "git merge feature-branch",
+        "git commit -m test",
+        "git tag v0.1.14",
+    ],
+)
+
+prefix_rule(
+    pattern = ["twine", "upload"],
+    decision = "prompt",
+    justification = "Publishing artifacts should stay explicitly approved.",
+    match = [
+        "twine upload dist/*",
+    ],
+)
+
+prefix_rule(
+    pattern = ["gh", "release", "create"],
+    decision = "prompt",
+    justification = "Creating GitHub releases should stay explicitly approved.",
+    match = [
+        "gh release create v0.1.14",
+    ],
+    not_match = [
+        "gh pr view 1",
+    ],
+)
+
+prefix_rule(
+    pattern = ["gh", ["pr", "run", "workflow", "release"]],
+    decision = "prompt",
+    justification = "GitHub operations use the network or affect remote state and should stay explicitly approved.",
+    match = [
+        "gh pr view 1",
+        "gh run list",
+        "gh workflow view build-wheels.yml",
+        "gh release create v0.1.14",
+    ],
+)
+
+prefix_rule(
+    pattern = ["curl"],
+    decision = "prompt",
+    justification = "Network requests should stay explicitly approved, especially in a trading repository with live venue APIs.",
+    match = [
+        "curl -I https://neleus.trade",
+        "curl -sS https://api.hyperliquid.xyz/info",
+    ],
+)
+
+prefix_rule(
+    pattern = ["neleus", ["run", "backtest", "market"]],
+    decision = "prompt",
+    justification = "Trading, market-data, and strategy execution commands may hit live services or execute strategies and should stay explicitly approved.",
+    match = [
+        "neleus run --mode once --strategy momentum",
+        "neleus backtest --strategy momentum",
+        "neleus market search BTC",
+    ],
+)
+
+prefix_rule(
+    pattern = [["python", "python3"], "-m", "neleus.cli.main", ["run", "backtest", "market"]],
+    decision = "prompt",
+    justification = "Trading, market-data, and strategy execution commands may hit live services or execute strategies and should stay explicitly approved.",
+    match = [
+        "python -m neleus.cli.main run --mode daemon --strategy momentum",
+    ],
+)
+
+prefix_rule(
+    pattern = ["git", "reset", "--hard"],
+    decision = "forbidden",
+    justification = "Destructive history rewrites are blocked. Use targeted edits or ask for an explicit review before changing this rule.",
+    match = [
+        "git reset --hard",
+        "git reset --hard HEAD~1",
+    ],
+)
+
+prefix_rule(
+    pattern = ["git", "checkout", "--"],
+    decision = "forbidden",
+    justification = "Discarding working tree changes is blocked. Use targeted edits or ask for an explicit review before changing this rule.",
+    match = [
+        "git checkout -- README.md",
+    ],
+)
+
+prefix_rule(
+    pattern = ["maturin", "publish"],
+    decision = "forbidden",
+    justification = "Publishing Python artifacts is blocked from the repo rules. Use the release workflow instead.",
+    match = [
+        "maturin publish",
+    ],
+)

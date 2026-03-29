@@ -14,7 +14,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, Generic, List, Optional, TYPE_CHECKING, TypeVar
+from typing import Any, Dict, Generic, List, Optional, TYPE_CHECKING, TypeVar, Union
 
 from .constants import (
     DEFAULT_LOOKBACK_DAYS,
@@ -80,7 +80,46 @@ class HyperliquidVenueConfig:
             )
 
 
-VenueConfig = HyperliquidVenueConfig
+@dataclass
+class PolymarketVenueConfig:
+    """Polymarket venue configuration for live/paper trading."""
+    network: Network = field(default_factory=lambda: Network.Mainnet)
+    wallet_address: Optional[str] = None
+    private_key: Optional[str] = None
+    funder_address: Optional[str] = None
+    
+    # API keys (L2 auth)
+    api_key: Optional[str] = None
+    api_secret: Optional[str] = None
+    api_passphrase: Optional[str] = None
+    
+    # Connection settings
+    clob_url: Optional[str] = None
+    gamma_url: Optional[str] = None
+    ws_url: Optional[str] = None
+    
+    def __post_init__(self):
+        if self.clob_url is None:
+            self.clob_url = (
+                "https://clob.polymarket.com"
+                if self.network == Network.Mainnet
+                else "https://clob-staging.polymarket.com"
+            )
+        if self.gamma_url is None:
+            self.gamma_url = (
+                "https://gamma-api.polymarket.com"
+                if self.network == Network.Mainnet
+                else "https://gamma-api-staging.polymarket.com"
+            )
+        if self.ws_url is None:
+            self.ws_url = (
+                "wss://ws-subscriptions-clob.polymarket.com/ws/"
+                if self.network == Network.Mainnet
+                else "wss://ws-subscriptions-clob-staging.polymarket.com/ws/"
+            )
+
+
+VenueConfig = Union[HyperliquidVenueConfig, PolymarketVenueConfig]
 
 
 @dataclass
