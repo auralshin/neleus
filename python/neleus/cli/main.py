@@ -272,7 +272,8 @@ def _write_local_env(
 def app_callback(ctx: typer.Context) -> None:
     if ctx.invoked_subcommand is None:
         console.print(render_brand_banner())
-        console.print(ctx.get_help())
+        from .repl import start_repl
+        start_repl(app)
         raise typer.Exit()
 
 
@@ -404,7 +405,7 @@ def market_analyze(
     symbol: str = typer.Argument(..., help="Hyperliquid symbol, e.g. BTC-PERP."),
     timeframe: str = typer.Option("1h", "--timeframe", "-t", help="1m, 5m, 15m, 1h, 4h, 1d"),
     lookback_bars: int = typer.Option(200, "--lookback-bars", "-n", min=20),
-    scope: str = typer.Option("all-perps", "--scope", "-s", help="perps, hip3, spot, or all-perps"),
+    scope: str = typer.Option("all-perps", "--scope", "-s", help="perps, hip3, spot, all-perps, or hip4"),
     dex: Optional[str] = typer.Option(None, "--dex", help="HIP-3 dex name, e.g. flx or xyz"),
     testnet: bool = typer.Option(False, "--testnet", help="Use Hyperliquid testnet."),
     output: str = typer.Option("table", "--output", "-o", help="table or json"),
@@ -433,7 +434,7 @@ def market_analyze(
 
 @market_app.command("list")
 def market_list(
-    scope: str = typer.Option("perps", "--scope", "-s", help="perps, hip3, spot, or all-perps"),
+    scope: str = typer.Option("perps", "--scope", "-s", help="perps, hip3, spot, all-perps, or hip4 (testnet-only)"),
     dex: Optional[str] = typer.Option(None, "--dex", help="HIP-3 dex name, e.g. xyz"),
     search: Optional[str] = typer.Option(None, "--search", help="Filter market names."),
     testnet: bool = typer.Option(False, "--testnet", help="Use Hyperliquid testnet."),
@@ -460,7 +461,7 @@ def market_list(
 @market_app.command("search")
 def market_search(
     query: str = typer.Argument(..., help="Market search text."),
-    scope: str = typer.Option("all-perps", "--scope", "-s", help="perps, hip3, spot, or all-perps"),
+    scope: str = typer.Option("all-perps", "--scope", "-s", help="perps, hip3, spot, all-perps, or hip4 (testnet-only)"),
     dex: Optional[str] = typer.Option(None, "--dex", help="HIP-3 dex name, e.g. xyz"),
     testnet: bool = typer.Option(False, "--testnet", help="Use Hyperliquid testnet."),
     output: str = typer.Option("table", "--output", "-o", help="table or json"),
@@ -490,7 +491,7 @@ def market_scan(
         "--symbols",
         help="Comma-separated symbol list. Overrides catalog selection.",
     ),
-    scope: str = typer.Option("perps", "--scope", "-s", help="perps, hip3, spot, or all-perps"),
+    scope: str = typer.Option("perps", "--scope", "-s", help="perps, hip3, spot, all-perps, or hip4 (testnet-only)"),
     dex: Optional[str] = typer.Option(None, "--dex", help="HIP-3 dex name, e.g. xyz"),
     search: Optional[str] = typer.Option(None, "--search", help="Filter before scanning."),
     timeframe: str = typer.Option("1h", "--timeframe", "-t", help="1m, 5m, 15m, 1h, 4h, 1d"),

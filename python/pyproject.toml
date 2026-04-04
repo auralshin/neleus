@@ -28,6 +28,7 @@ dependencies = [
     "rich>=13.0.0",
     "toml>=0.10.2",
     "numpy>=1.24.0",
+    "prompt_toolkit>=3.0.0",
 ]
 
 [project.optional-dependencies]
@@ -71,7 +72,6 @@ exclude = [
     "neleus/**/*.pyc",
     "neleus/**/*.pyo",
 ]
-strip = true
 # Use: cd python && maturin build --profile packaging --strip
 
 [tool.black]

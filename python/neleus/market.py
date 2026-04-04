@@ -45,6 +45,10 @@ SCOPE_ALIASES = {
     "all-perp": "all-perps",
     "all-perps": "all-perps",
     "all_perps": "all-perps",
+    "hip4": "hip4",
+    "hip-4": "hip4",
+    "outcome": "hip4",
+    "outcomes": "hip4",
 }
 
 
@@ -90,7 +94,7 @@ def normalize_market_scope(scope: str) -> str:
     normalized = scope.strip().lower().replace("_", "-")
     canonical = SCOPE_ALIASES.get(normalized)
     if canonical is None:
-        raise ValueError("scope must be one of: perps, hip3, spot, all-perps")
+        raise ValueError("scope must be one of: perps, hip3, spot, all-perps, hip4")
     return canonical
 
 
@@ -180,6 +184,7 @@ class MarketEntry:
     token_indices: List[int] = field(default_factory=list)
     is_canonical: Optional[bool] = None
     full_name: Optional[str] = None
+    description: Optional[str] = None
     request_symbol: Optional[str] = None
     request_dex: Optional[str] = None
 
@@ -197,6 +202,7 @@ class MarketEntry:
             "token_indices": self.token_indices,
             "is_canonical": self.is_canonical,
             "full_name": self.full_name,
+            "description": self.description,
             "request_symbol": self.request_symbol,
             "request_dex": self.request_dex,
         }
@@ -484,8 +490,30 @@ def list_markets(
                 )
             )
         dex_counts = {"spot": len(entries)}
+    elif normalized_scope == "hip4":
+        if not testnet:
+            raise ValueError(
+                "HIP-4 outcome markets are testnet-only. Pass testnet=True (or --testnet on the CLI)."
+            )
+        meta = client.fetch_outcome_meta()
+        for outcome in meta.outcomes:
+            for side, spec in enumerate(outcome.side_specs):
+                encoding = 10 * outcome.outcome + side
+                coin = f"#{encoding}"
+                entries.append(
+                    MarketEntry(
+                        name=coin,
+                        scope="hip4",
+                        market_type="outcome",
+                        dex="outcome",
+                        full_name=f"{outcome.name} — {spec.name}",
+                        description=outcome.description,
+                        request_symbol=coin,
+                    )
+                )
+        dex_counts = {"outcome": len(entries)}
     else:
-        raise ValueError("scope must be one of: perps, hip3, spot, all-perps")
+        raise ValueError("scope must be one of: perps, hip3, spot, all-perps, hip4")
 
     ranked_entries = []
     for entry in entries:
