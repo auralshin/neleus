@@ -92,6 +92,9 @@ fn neleus_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyHyperliquidSpotMeta>()?;
     m.add_class::<PyHyperliquidSpotToken>()?;
     m.add_class::<PyHyperliquidSpotMarket>()?;
+    m.add_class::<PyHyperliquidOutcomeMeta>()?;
+    m.add_class::<PyHyperliquidOutcome>()?;
+    m.add_class::<PyHyperliquidOutcomeSideSpec>()?;
     m.add_class::<PyHyperliquidL2Level>()?;
     m.add_class::<PyHyperliquidL2BookUpdate>()?;
     m.add_class::<PyHyperliquidL2BookStream>()?;
