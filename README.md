@@ -43,12 +43,12 @@
 ## Quick Start
 
 ```bash
-python3 -m venv python/.venv
-source python/.venv/bin/activate
+python3 -m venv .venv
+source .venv/bin/activate
 
 pip install maturin
-VIRTUAL_ENV=$PWD/python/.venv \
-  python/.venv/bin/maturin develop --release -m crates/pybridge/Cargo.toml
+VIRTUAL_ENV=$PWD/.venv \
+  .venv/bin/maturin develop --release -m crates/pybridge/Cargo.toml
 pip install -e python/
 ```
 
