@@ -497,7 +497,11 @@ def list_markets(
             )
         meta = client.fetch_outcome_meta()
         for outcome in meta.outcomes:
-            for side, spec in enumerate(outcome.side_specs):
+            if len(outcome.side_specs) > 2:
+                raise ValueError(
+                    f"HIP-4 outcome '{outcome.name}' has {len(outcome.side_specs)} side specs; expected at most 2."
+                )
+            for side, spec in enumerate(outcome.side_specs[:2]):
                 encoding = 10 * outcome.outcome + side
                 coin = f"#{encoding}"
                 entries.append(

@@ -16,6 +16,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+import click
 import typer
 from rich.console import Console
 from rich.live import Live
@@ -275,9 +276,13 @@ def _write_local_env(
 @app.callback(invoke_without_command=True)
 def app_callback(ctx: typer.Context) -> None:
     if ctx.invoked_subcommand is None:
-        console.print(render_brand_banner())
-        from .repl import start_repl
-        start_repl(app)
+        import sys
+        if sys.stdin.isatty():
+            console.print(render_brand_banner())
+            from .repl import start_repl
+            start_repl(app)
+        else:
+            click.echo(ctx.get_help())
         raise typer.Exit()
 
 

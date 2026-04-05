@@ -43,13 +43,13 @@
 ## Quick Start
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
+python3 -m venv python/.venv
+source python/.venv/bin/activate
 
 pip install maturin
-cd python
-maturin develop --release
-pip install -e .
+VIRTUAL_ENV=$PWD/python/.venv \
+  python/.venv/bin/maturin develop --release -m crates/pybridge/Cargo.toml
+pip install -e python/
 ```
 
 No project is required for the market-facing commands:

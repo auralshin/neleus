@@ -51,7 +51,7 @@ cargo check --workspace
 ### Build Python extension (required after any Rust change)
 ```bash
 # Always use the project venv — NOT the root .venv
-VIRTUAL_ENV=/Users/auralshin/projects/neleus/python/.venv \
+VIRTUAL_ENV=$PWD/python/.venv \
   python/.venv/bin/maturin develop --release -m crates/pybridge/Cargo.toml
 ```
 
@@ -69,7 +69,7 @@ cargo test -p neleus-adapters-hyperliquid
 cargo test -p neleus-core-types
 
 # Python / integration tests
-python/.venv/bin/python python/test_hip4.py
+python/.venv/bin/python -m pytest python
 ```
 
 ### Release wheel

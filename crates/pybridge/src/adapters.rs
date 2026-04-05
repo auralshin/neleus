@@ -424,24 +424,37 @@ impl From<HyperliquidOutcome> for PyHyperliquidOutcome {
     }
 }
 
+impl PyHyperliquidOutcome {
+    fn validate_side(side: u32) -> PyResult<()> {
+        if side <= 1 {
+            Ok(())
+        } else {
+            Err(PyValueError::new_err(format!(
+                "invalid HIP-4 outcome side {side}; expected 0 or 1"
+            )))
+        }
+    }
+}
+
 #[pymethods]
 impl PyHyperliquidOutcome {
-    pub fn get_encoding(&self, side: u32) -> u32 {
-        10 * self.outcome + side
+    pub fn get_encoding(&self, side: u32) -> PyResult<u32> {
+        Self::validate_side(side)?;
+        Ok(10 * self.outcome + side)
     }
 
-    pub fn get_asset_id(&self, side: u32) -> u32 {
-        100_000_000 + self.get_encoding(side)
+    pub fn get_asset_id(&self, side: u32) -> PyResult<u32> {
+        Ok(100_000_000 + self.get_encoding(side)?)
     }
 
     /// e.g. "#1230" for outcome 123 side 0
-    pub fn get_coin(&self, side: u32) -> String {
-        format!("#{}", self.get_encoding(side))
+    pub fn get_coin(&self, side: u32) -> PyResult<String> {
+        Ok(format!("#{}", self.get_encoding(side)?))
     }
 
     /// e.g. "+1230" for outcome 123 side 0
-    pub fn get_token_name(&self, side: u32) -> String {
-        format!("+{}", self.get_encoding(side))
+    pub fn get_token_name(&self, side: u32) -> PyResult<String> {
+        Ok(format!("+{}", self.get_encoding(side)?))
     }
 }
 

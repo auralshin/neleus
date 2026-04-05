@@ -12,7 +12,7 @@ def start_repl(app: typer.Typer) -> None:
     session = PromptSession(history=InMemoryHistory())
 
     console.print("[bold cyan]Welcome to Neleus CLI.[/bold cyan]")
-    console.print("Type [bold yellow]help[/bold yellow] to see available commands, or [bold yellow]exit[/bold yellow] to quit.\n")
+    console.print("Type [bold yellow]--help[/bold yellow] to see available commands, or [bold yellow]exit[/bold yellow] to quit.\n")
 
     click_command = typer.main.get_command(app)
 
@@ -26,9 +26,16 @@ def start_repl(app: typer.Typer) -> None:
             if text.startswith("/"):
                 text = text[1:]
 
-            if text.strip().lower() in ("exit", "quit"):
+            stripped = text.strip().lower()
+            if stripped in ("exit", "quit"):
                 console.print("[green]Goodbye![/green]")
                 break
+
+            # Special-case "help" → show top-level help
+            if stripped == "help":
+                ctx = click.Context(click_command, info_name="neleus")
+                console.print(click_command.get_help(ctx))
+                continue
 
             try:
                 args = shlex.split(text)
