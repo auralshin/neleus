@@ -41,6 +41,8 @@ from .ui import (
     render_market_analysis,
     render_market_catalog,
     render_market_scan,
+    render_outcome_catalog,
+    render_outcome_detail,
     render_project_created,
     render_project_info,
     render_runtime_result,
@@ -58,9 +60,11 @@ app = typer.Typer(
 market_app = typer.Typer(help="Search, analyze, scan, and monitor Hyperliquid markets.")
 strategy_app = typer.Typer(help="Manage project strategy files.")
 db_app = typer.Typer(help="Database adapter management (status, schema init).")
+outcomes_app = typer.Typer(help="[EXPERIMENTAL] Explore HIP-4 outcome markets (testnet preview).")
 app.add_typer(market_app, name="market")
 app.add_typer(strategy_app, name="strategy")
 app.add_typer(db_app, name="db")
+app.add_typer(outcomes_app, name="outcomes")
 
 CONFIG_FILE = "neleus.toml"
 
@@ -897,6 +901,101 @@ def _init_schema(db_cfg) -> None:
             flush_interval_ms=db_cfg.flush_interval_ms,
         )
         TimescaleStore(config=cfg)
+
+
+# ---------------------------------------------------------------------------
+# Outcomes commands (HIP-4 — testnet experimental)
+# ---------------------------------------------------------------------------
+
+@outcomes_app.command("list")
+def outcomes_list(
+    output: str = typer.Option("table", "--output", "-o", help="table or json"),
+):
+    """[EXPERIMENTAL] List HIP-4 outcome markets from Hyperliquid testnet.
+
+    Outcome markets are currently testnet-only. This command is a preview
+    of what will be available on mainnet.
+
+    Examples
+    --------
+    neleus outcomes list
+    neleus outcomes list --output json
+    """
+    from ..types import HyperliquidClient
+
+    with console.status("[bold yellow]Fetching outcome markets from testnet..."):
+        try:
+            client = HyperliquidClient(testnet=True)
+            meta = client.fetch_outcome_meta()
+        except Exception as exc:
+            console.print(f"[red]Failed to fetch outcome markets:[/red] {exc}")
+            raise typer.Exit(1)
+
+    if output == "json":
+        import json
+        data = {
+            "network": "testnet",
+            "outcomes": [
+                {
+                    "outcome": o.outcome,
+                    "name": o.name,
+                    "description": o.description,
+                    "sides": [
+                        {
+                            "side": idx,
+                            "name": spec.name,
+                            "coin": o.get_coin(idx),
+                            "token_name": o.get_token_name(idx),
+                            "asset_id": o.get_asset_id(idx),
+                        }
+                        for idx, spec in enumerate(o.side_specs)
+                    ],
+                }
+                for o in meta.outcomes
+            ],
+        }
+        console.print_json(json.dumps(data))
+        return
+
+    console.print(render_outcome_catalog(meta, network="testnet"))
+
+
+@outcomes_app.command("show")
+def outcomes_show(
+    name: str = typer.Argument(..., help="Outcome market name or partial match (e.g. 'Akami')."),
+):
+    """[EXPERIMENTAL] Show details and tradeable sides for a single outcome market.
+
+    Examples
+    --------
+    neleus outcomes show Akami
+    neleus outcomes show "100 meter"
+    """
+    from ..types import HyperliquidClient
+
+    with console.status("[bold yellow]Fetching outcome markets from testnet..."):
+        try:
+            client = HyperliquidClient(testnet=True)
+            meta = client.fetch_outcome_meta()
+        except Exception as exc:
+            console.print(f"[red]Failed to fetch outcome markets:[/red] {exc}")
+            raise typer.Exit(1)
+
+    needle = name.strip().lower()
+    matches = [o for o in meta.outcomes if needle in o.name.lower() or needle == str(o.outcome)]
+
+    if not matches:
+        names = ", ".join(o.name for o in meta.outcomes)
+        console.print(f"[red]No outcome matched '{name}'.[/red] Available: {names}")
+        raise typer.Exit(1)
+
+    if len(matches) > 1:
+        names = ", ".join(o.name for o in matches)
+        console.print(f"[yellow]Multiple matches for '{name}':[/yellow] {names}")
+        console.print("[dim]Be more specific.[/dim]")
+        raise typer.Exit(1)
+
+    console.print(render_outcome_detail(matches[0]))
 
 
 # ---------------------------------------------------------------------------

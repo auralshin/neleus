@@ -258,6 +258,7 @@ def render_about_panel() -> Group:
     top_level.add_row("neleus run --mode once|daemon", "Run the project runtime once or continuously")
     top_level.add_row("neleus strategy list|new|show", "Manage strategy source files")
     top_level.add_row("neleus db status|init", "Inspect or initialize the project database setup")
+    top_level.add_row("neleus outcomes list|show", "[yellow]EXPERIMENTAL[/yellow] Browse HIP-4 outcome markets (testnet preview)")
     top_level.add_row("neleus info", "Show current project configuration and discovered strategies")
 
     market_examples = Table(box=box.SIMPLE_HEAVY, expand=True)
@@ -773,6 +774,117 @@ def render_project_info(project_root: Path, config: Dict[str, Any], strategies: 
                 Panel(tree, title="Project Tree", border_style="bright_blue"),
                 _kv_table("Configuration", config_rows),
                 _kv_table("Database Adapter", db_rows),
+            ],
+            expand=True,
+        ),
+    )
+
+
+def render_outcome_catalog(meta: Any, network: str = "testnet") -> Group:
+    """Render a HIP-4 outcome market catalog with experimental badge."""
+    badge = Text(justify="center")
+    badge.append("  EXPERIMENTAL  ", style="bold black on yellow")
+    badge.append("  HIP-4 Outcome Markets  ", style="bold cyan")
+    badge.append("  TESTNET PREVIEW  " if network == "testnet" else "  MAINNET  ", style="bold black on green" if network != "testnet" else "bold black on magenta")
+
+    outcomes = getattr(meta, "outcomes", [])
+    total_sides = sum(len(getattr(o, "side_specs", [])) for o in outcomes)
+    cards = Columns(
+        [
+            _metric_card("Markets", str(len(outcomes)), "cyan"),
+            _metric_card("Tradeable Sides", str(total_sides), "green"),
+            _metric_card("Network", network.upper(), "magenta" if network == "testnet" else "green"),
+            _metric_card("Fees", "Close / Settle only", "yellow"),
+        ],
+        expand=True,
+        equal=True,
+    )
+
+    table = Table(box=box.SIMPLE_HEAVY, expand=True)
+    table.add_column("Outcome", style="cyan", no_wrap=True)
+    table.add_column("Side", no_wrap=True)
+    table.add_column("Coin", style="yellow", no_wrap=True)
+    table.add_column("Asset ID", justify="right", no_wrap=True)
+    table.add_column("Description")
+
+    for outcome in outcomes:
+        side_specs = getattr(outcome, "side_specs", [])
+        for side_idx, spec in enumerate(side_specs):
+            encoding = 10 * outcome.outcome + side_idx
+            side_style = "green" if spec.name.lower() in ("yes", "long") else "red" if spec.name.lower() in ("no", "short") else "white"
+            table.add_row(
+                outcome.name,
+                f"[{side_style}]{spec.name}[/{side_style}]",
+                f"#{encoding}",
+                str(100_000_000 + encoding),
+                outcome.description or "-",
+            )
+
+    if not outcomes:
+        table.add_row("-", "-", "-", "-", "-")
+
+    note = Text()
+    note.append("Outcome markets trade like spot. ", style="dim")
+    note.append("Fees are charged only on close or settlement, not on open. ", style="dim")
+    note.append("\nAsset ID = 100_000_000 + (10 × outcome_id + side).  ", style="dim")
+    note.append("Coin format: ", style="dim")
+    note.append("#<encoding>", style="cyan")
+    note.append("  Token format: ", style="dim")
+    note.append("+<encoding>", style="cyan")
+
+    coming_soon = Text(justify="center")
+    coming_soon.append("\n  Mainnet support coming soon.  ", style="bold black on yellow")
+    coming_soon.append("  Data shown is live testnet.  ", style="dim")
+
+    return Group(
+        Panel(Align.center(badge), border_style="yellow", padding=(0, 2)),
+        cards,
+        Panel(table, title="Outcome Markets", border_style="bright_blue"),
+        Panel(note, title="How Outcomes Work", border_style="bright_blue", padding=(1, 2)),
+        Panel(Align.center(coming_soon), border_style="yellow", padding=(0, 1)),
+    )
+
+
+def render_outcome_detail(outcome: Any) -> Group:
+    """Render detailed view of a single outcome market."""
+    badge = Text(justify="center")
+    badge.append("  EXPERIMENTAL — TESTNET PREVIEW  ", style="bold black on yellow")
+
+    side_specs = getattr(outcome, "side_specs", [])
+    sides_table = Table(box=box.SIMPLE_HEAVY, expand=True)
+    sides_table.add_column("Side", style="cyan", no_wrap=True)
+    sides_table.add_column("Coin", style="yellow", no_wrap=True)
+    sides_table.add_column("Token Name", style="magenta", no_wrap=True)
+    sides_table.add_column("Asset ID", justify="right", no_wrap=True)
+    sides_table.add_column("How to trade")
+
+    for side_idx, spec in enumerate(side_specs):
+        encoding = 10 * outcome.outcome + side_idx
+        side_style = "green" if spec.name.lower() in ("yes", "long") else "red" if spec.name.lower() in ("no", "short") else "white"
+        sides_table.add_row(
+            f"[{side_style}]{spec.name}[/{side_style}]",
+            f"#{encoding}",
+            f"+{encoding}",
+            str(100_000_000 + encoding),
+            f"Buy #{encoding} to go {spec.name.lower()}, sell to exit",
+        )
+
+    if not side_specs:
+        sides_table.add_row("-", "-", "-", "-", "-")
+
+    meta_rows = [
+        ("Outcome ID", str(outcome.outcome)),
+        ("Name", outcome.name),
+        ("Description", outcome.description or "-"),
+        ("Total Sides", str(len(side_specs))),
+    ]
+
+    return Group(
+        Panel(Align.center(badge), border_style="yellow", padding=(0, 2)),
+        Columns(
+            [
+                _kv_table("Outcome Details", meta_rows),
+                Panel(sides_table, title="Tradeable Sides", border_style="bright_blue"),
             ],
             expand=True,
         ),
