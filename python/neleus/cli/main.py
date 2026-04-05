@@ -16,6 +16,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+import click
 import typer
 from rich.console import Console
 from rich.live import Live
@@ -41,6 +42,8 @@ from .ui import (
     render_market_analysis,
     render_market_catalog,
     render_market_scan,
+    render_outcome_catalog,
+    render_outcome_detail,
     render_project_created,
     render_project_info,
     render_runtime_result,
@@ -58,9 +61,11 @@ app = typer.Typer(
 market_app = typer.Typer(help="Search, analyze, scan, and monitor Hyperliquid markets.")
 strategy_app = typer.Typer(help="Manage project strategy files.")
 db_app = typer.Typer(help="Database adapter management (status, schema init).")
+outcomes_app = typer.Typer(help="[EXPERIMENTAL] Explore HIP-4 outcome markets (testnet preview).")
 app.add_typer(market_app, name="market")
 app.add_typer(strategy_app, name="strategy")
 app.add_typer(db_app, name="db")
+app.add_typer(outcomes_app, name="outcomes")
 
 CONFIG_FILE = "neleus.toml"
 
@@ -271,8 +276,13 @@ def _write_local_env(
 @app.callback(invoke_without_command=True)
 def app_callback(ctx: typer.Context) -> None:
     if ctx.invoked_subcommand is None:
-        console.print(render_brand_banner())
-        console.print(ctx.get_help())
+        import sys
+        if sys.stdin.isatty():
+            console.print(render_brand_banner())
+            from .repl import start_repl
+            start_repl(app)
+        else:
+            click.echo(ctx.get_help())
         raise typer.Exit()
 
 
@@ -404,7 +414,7 @@ def market_analyze(
     symbol: str = typer.Argument(..., help="Hyperliquid symbol, e.g. BTC-PERP."),
     timeframe: str = typer.Option("1h", "--timeframe", "-t", help="1m, 5m, 15m, 1h, 4h, 1d"),
     lookback_bars: int = typer.Option(200, "--lookback-bars", "-n", min=20),
-    scope: str = typer.Option("all-perps", "--scope", "-s", help="perps, hip3, spot, or all-perps"),
+    scope: str = typer.Option("all-perps", "--scope", "-s", help="perps, hip3, spot, all-perps, or hip4"),
     dex: Optional[str] = typer.Option(None, "--dex", help="HIP-3 dex name, e.g. flx or xyz"),
     testnet: bool = typer.Option(False, "--testnet", help="Use Hyperliquid testnet."),
     output: str = typer.Option("table", "--output", "-o", help="table or json"),
@@ -433,7 +443,7 @@ def market_analyze(
 
 @market_app.command("list")
 def market_list(
-    scope: str = typer.Option("perps", "--scope", "-s", help="perps, hip3, spot, or all-perps"),
+    scope: str = typer.Option("perps", "--scope", "-s", help="perps, hip3, spot, all-perps, or hip4 (testnet-only)"),
     dex: Optional[str] = typer.Option(None, "--dex", help="HIP-3 dex name, e.g. xyz"),
     search: Optional[str] = typer.Option(None, "--search", help="Filter market names."),
     testnet: bool = typer.Option(False, "--testnet", help="Use Hyperliquid testnet."),
@@ -460,7 +470,7 @@ def market_list(
 @market_app.command("search")
 def market_search(
     query: str = typer.Argument(..., help="Market search text."),
-    scope: str = typer.Option("all-perps", "--scope", "-s", help="perps, hip3, spot, or all-perps"),
+    scope: str = typer.Option("all-perps", "--scope", "-s", help="perps, hip3, spot, all-perps, or hip4 (testnet-only)"),
     dex: Optional[str] = typer.Option(None, "--dex", help="HIP-3 dex name, e.g. xyz"),
     testnet: bool = typer.Option(False, "--testnet", help="Use Hyperliquid testnet."),
     output: str = typer.Option("table", "--output", "-o", help="table or json"),
@@ -490,7 +500,7 @@ def market_scan(
         "--symbols",
         help="Comma-separated symbol list. Overrides catalog selection.",
     ),
-    scope: str = typer.Option("perps", "--scope", "-s", help="perps, hip3, spot, or all-perps"),
+    scope: str = typer.Option("perps", "--scope", "-s", help="perps, hip3, spot, all-perps, or hip4 (testnet-only)"),
     dex: Optional[str] = typer.Option(None, "--dex", help="HIP-3 dex name, e.g. xyz"),
     search: Optional[str] = typer.Option(None, "--search", help="Filter before scanning."),
     timeframe: str = typer.Option("1h", "--timeframe", "-t", help="1m, 5m, 15m, 1h, 4h, 1d"),
@@ -896,6 +906,101 @@ def _init_schema(db_cfg) -> None:
             flush_interval_ms=db_cfg.flush_interval_ms,
         )
         TimescaleStore(config=cfg)
+
+
+# ---------------------------------------------------------------------------
+# Outcomes commands (HIP-4 — testnet experimental)
+# ---------------------------------------------------------------------------
+
+@outcomes_app.command("list")
+def outcomes_list(
+    output: str = typer.Option("table", "--output", "-o", help="table or json"),
+):
+    """[EXPERIMENTAL] List HIP-4 outcome markets from Hyperliquid testnet.
+
+    Outcome markets are currently testnet-only. This command is a preview
+    of what will be available on mainnet.
+
+    Examples
+    --------
+    neleus outcomes list
+    neleus outcomes list --output json
+    """
+    from ..types import HyperliquidClient
+
+    with console.status("[bold yellow]Fetching outcome markets from testnet..."):
+        try:
+            client = HyperliquidClient(testnet=True)
+            meta = client.fetch_outcome_meta()
+        except Exception as exc:
+            console.print(f"[red]Failed to fetch outcome markets:[/red] {exc}")
+            raise typer.Exit(1)
+
+    if output == "json":
+        import json
+        data = {
+            "network": "testnet",
+            "outcomes": [
+                {
+                    "outcome": o.outcome,
+                    "name": o.name,
+                    "description": o.description,
+                    "sides": [
+                        {
+                            "side": idx,
+                            "name": spec.name,
+                            "coin": o.get_coin(idx),
+                            "token_name": o.get_token_name(idx),
+                            "asset_id": o.get_asset_id(idx),
+                        }
+                        for idx, spec in enumerate(o.side_specs)
+                    ],
+                }
+                for o in meta.outcomes
+            ],
+        }
+        console.print_json(json.dumps(data))
+        return
+
+    console.print(render_outcome_catalog(meta, network="testnet"))
+
+
+@outcomes_app.command("show")
+def outcomes_show(
+    name: str = typer.Argument(..., help="Outcome market name or partial match (e.g. 'Akami')."),
+):
+    """[EXPERIMENTAL] Show details and tradeable sides for a single outcome market.
+
+    Examples
+    --------
+    neleus outcomes show Akami
+    neleus outcomes show "100 meter"
+    """
+    from ..types import HyperliquidClient
+
+    with console.status("[bold yellow]Fetching outcome markets from testnet..."):
+        try:
+            client = HyperliquidClient(testnet=True)
+            meta = client.fetch_outcome_meta()
+        except Exception as exc:
+            console.print(f"[red]Failed to fetch outcome markets:[/red] {exc}")
+            raise typer.Exit(1)
+
+    needle = name.strip().lower()
+    matches = [o for o in meta.outcomes if needle in o.name.lower() or needle == str(o.outcome)]
+
+    if not matches:
+        names = ", ".join(o.name for o in meta.outcomes)
+        console.print(f"[red]No outcome matched '{name}'.[/red] Available: {names}")
+        raise typer.Exit(1)
+
+    if len(matches) > 1:
+        names = ", ".join(o.name for o in matches)
+        console.print(f"[yellow]Multiple matches for '{name}':[/yellow] {names}")
+        console.print("[dim]Be more specific.[/dim]")
+        raise typer.Exit(1)
+
+    console.print(render_outcome_detail(matches[0]))
 
 
 # ---------------------------------------------------------------------------

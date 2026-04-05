@@ -9,6 +9,7 @@ use neleus_adapters_hyperliquid::{
     CandleInterval, HyperliquidCandle, HyperliquidConfig, HyperliquidHistoricalClient,
     HyperliquidMeta, HyperliquidSpotMarketInfo, HyperliquidSpotMeta, HyperliquidSpotTokenInfo,
     HyperliquidWsMarketData, HyperliquidWsMessage, L2BookData, PriceLevel,
+    HyperliquidOutcomeMeta, HyperliquidOutcome, HyperliquidOutcomeSideSpec,
 };
 
 #[pyclass(name = "HyperliquidClient")]
@@ -112,6 +113,17 @@ impl PyHyperliquidClient {
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to fetch spot meta: {}", e)))?;
 
         Ok(PyHyperliquidSpotMeta::from(meta))
+    }
+
+    pub fn fetch_outcome_meta(&self) -> PyResult<PyHyperliquidOutcomeMeta> {
+        let client = HyperliquidHistoricalClient::new(self.config.clone());
+
+        let meta = self
+            .runtime
+            .block_on(async { client.fetch_outcome_meta().await })
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to fetch outcome meta: {}", e)))?;
+
+        Ok(PyHyperliquidOutcomeMeta::from(meta))
     }
 
     pub fn fetch_l2_book(&self, coin: &str) -> PyResult<Option<PyHyperliquidL2BookUpdate>> {
@@ -372,6 +384,99 @@ impl From<HyperliquidSpotMarketInfo> for PyHyperliquidSpotMarket {
             tokens: m.tokens,
             is_canonical: m.is_canonical,
         }
+    }
+}
+
+#[pyclass(name = "HyperliquidOutcomeSideSpec")]
+#[derive(Debug, Clone)]
+pub struct PyHyperliquidOutcomeSideSpec {
+    #[pyo3(get)]
+    pub name: String,
+}
+
+impl From<HyperliquidOutcomeSideSpec> for PyHyperliquidOutcomeSideSpec {
+    fn from(s: HyperliquidOutcomeSideSpec) -> Self {
+        Self { name: s.name }
+    }
+}
+
+#[pyclass(name = "HyperliquidOutcome")]
+#[derive(Debug, Clone)]
+pub struct PyHyperliquidOutcome {
+    #[pyo3(get)]
+    pub outcome: u32,
+    #[pyo3(get)]
+    pub name: String,
+    #[pyo3(get)]
+    pub description: String,
+    #[pyo3(get)]
+    pub side_specs: Vec<PyHyperliquidOutcomeSideSpec>,
+}
+
+impl From<HyperliquidOutcome> for PyHyperliquidOutcome {
+    fn from(o: HyperliquidOutcome) -> Self {
+        Self {
+            outcome: o.outcome,
+            name: o.name,
+            description: o.description,
+            side_specs: o.side_specs.into_iter().map(PyHyperliquidOutcomeSideSpec::from).collect(),
+        }
+    }
+}
+
+impl PyHyperliquidOutcome {
+    fn validate_side(side: u32) -> PyResult<()> {
+        if side <= 1 {
+            Ok(())
+        } else {
+            Err(PyValueError::new_err(format!(
+                "invalid HIP-4 outcome side {side}; expected 0 or 1"
+            )))
+        }
+    }
+}
+
+#[pymethods]
+impl PyHyperliquidOutcome {
+    pub fn get_encoding(&self, side: u32) -> PyResult<u32> {
+        Self::validate_side(side)?;
+        Ok(10 * self.outcome + side)
+    }
+
+    pub fn get_asset_id(&self, side: u32) -> PyResult<u32> {
+        Ok(100_000_000 + self.get_encoding(side)?)
+    }
+
+    /// e.g. "#1230" for outcome 123 side 0
+    pub fn get_coin(&self, side: u32) -> PyResult<String> {
+        Ok(format!("#{}", self.get_encoding(side)?))
+    }
+
+    /// e.g. "+1230" for outcome 123 side 0
+    pub fn get_token_name(&self, side: u32) -> PyResult<String> {
+        Ok(format!("+{}", self.get_encoding(side)?))
+    }
+}
+
+#[pyclass(name = "HyperliquidOutcomeMeta")]
+#[derive(Debug, Clone)]
+pub struct PyHyperliquidOutcomeMeta {
+    #[pyo3(get)]
+    pub outcomes: Vec<PyHyperliquidOutcome>,
+}
+
+impl From<HyperliquidOutcomeMeta> for PyHyperliquidOutcomeMeta {
+    fn from(m: HyperliquidOutcomeMeta) -> Self {
+        Self {
+            outcomes: m.outcomes.into_iter().map(PyHyperliquidOutcome::from).collect(),
+        }
+    }
+}
+
+#[pymethods]
+impl PyHyperliquidOutcomeMeta {
+    pub fn outcome_names(&self) -> Vec<String> {
+        self.outcomes.iter().map(|o| o.name.clone()).collect()
     }
 }
 

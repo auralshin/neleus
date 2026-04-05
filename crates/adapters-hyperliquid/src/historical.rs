@@ -195,6 +195,26 @@ pub struct HyperliquidSpotMarketInfo {
     pub is_canonical: Option<bool>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HyperliquidOutcomeSideSpec {
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HyperliquidOutcome {
+    pub outcome: u32,
+    pub name: String,
+    pub description: String,
+    #[serde(rename = "sideSpecs", default)]
+    pub side_specs: Vec<HyperliquidOutcomeSideSpec>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HyperliquidOutcomeMeta {
+    pub outcomes: Vec<HyperliquidOutcome>,
+}
+
+
 pub struct HyperliquidHistoricalClient {
     config: HyperliquidConfig,
     http_client: HttpClient,
@@ -476,6 +496,44 @@ impl HyperliquidHistoricalClient {
         }
 
         let meta: HyperliquidSpotMeta = response
+            .json()
+            .await
+            .map_err(|e| HyperliquidError::InvalidResponse(e.to_string()))?;
+
+        Ok(meta)
+    }
+
+    pub async fn fetch_outcome_meta(&self) -> Result<HyperliquidOutcomeMeta, HyperliquidError> {
+        let url = format!("{}/info", self.config.rest_url);
+
+        #[derive(Serialize)]
+        struct OutcomeMetaRequest {
+            #[serde(rename = "type")]
+            req_type: String,
+        }
+
+        let request = OutcomeMetaRequest {
+            req_type: "outcomeMeta".to_string(),
+        };
+
+        let response = self
+            .http_client
+            .post(&url)
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| HyperliquidError::RequestError(e.to_string()))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let text = response.text().await.unwrap_or_default();
+            return Err(HyperliquidError::RequestError(format!(
+                "HTTP {}: {}",
+                status, text
+            )));
+        }
+
+        let meta: HyperliquidOutcomeMeta = response
             .json()
             .await
             .map_err(|e| HyperliquidError::InvalidResponse(e.to_string()))?;

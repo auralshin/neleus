@@ -47,6 +47,9 @@ if TYPE_CHECKING:
     HyperliquidSpotMeta: Any
     HyperliquidSpotToken: Any
     HyperliquidSpotMarket: Any
+    HyperliquidOutcomeMeta: Any
+    HyperliquidOutcome: Any
+    HyperliquidOutcomeSideSpec: Any
     HyperliquidL2Level: Any
     HyperliquidL2BookUpdate: Any
     HyperliquidL2BookStream: Any
@@ -123,6 +126,9 @@ try:
         HyperliquidSpotMeta,
         HyperliquidSpotToken,
         HyperliquidSpotMarket,
+        HyperliquidOutcomeMeta,
+        HyperliquidOutcome,
+        HyperliquidOutcomeSideSpec,
         HyperliquidL2Level,
         HyperliquidL2BookUpdate,
         HyperliquidL2BookStream,
@@ -199,6 +205,9 @@ except ImportError as e:
             HyperliquidSpotMeta,
             HyperliquidSpotToken,
             HyperliquidSpotMarket,
+            HyperliquidOutcomeMeta,
+            HyperliquidOutcome,
+            HyperliquidOutcomeSideSpec,
             HyperliquidL2Level,
             HyperliquidL2BookUpdate,
             HyperliquidL2BookStream,
@@ -303,6 +312,9 @@ __all__ = [
     "HyperliquidSpotMeta",
     "HyperliquidSpotToken",
     "HyperliquidSpotMarket",
+    "HyperliquidOutcomeMeta",
+    "HyperliquidOutcome",
+    "HyperliquidOutcomeSideSpec",
     "HyperliquidL2Level",
     "HyperliquidL2BookUpdate",
     "HyperliquidL2BookStream",
