@@ -1,6 +1,20 @@
 # Market Workflows
 
-The market command group is the main no-project surface of Neleus.
+The market command group is the main no-project surface of Neleus. All market data is fetched via the Rust Hyperliquid adapter — no credentials required.
+
+## Market Scopes
+
+Every market command accepts a `--scope` flag:
+
+| Scope | Aliases | Description |
+| --- | --- | --- |
+| `perps` | `perp`, `perpetual` | Validator-operated perpetual markets |
+| `all-perps` | `all-perp`, `all_perps` | All perpetuals across all DEXs |
+| `hip3` | `hip-3` | Builder-deployed HIP-3 perpetuals |
+| `spot` | `spots` | Spot pairs |
+| `hip4` | `hip-4`, `outcome`, `outcomes` | Binary outcome markets (testnet only) |
+
+---
 
 ## Search Markets
 
@@ -15,9 +29,11 @@ neleus market search PURR --scope spot
 
 Useful flags:
 
-- `--scope perps|hip3|all-perps|spot`
-- `--dex xyz`
+- `--scope perps|hip3|all-perps|spot|hip4`
+- `--dex xyz` (HIP-3 only)
 - `--output json`
+
+---
 
 ## List Market Catalogs
 
@@ -31,6 +47,18 @@ neleus market list --scope all-perps
 neleus market list --scope spot
 ```
 
+### HIP-4 Outcome Markets
+
+HIP-4 markets are binary outcome contracts and are **testnet-only**. Always pass `--testnet`:
+
+```bash
+neleus market list --scope hip4 --testnet
+```
+
+Each outcome market has two sides (0 = No, 1 = Yes). The coin encoding is `#<10 * outcome_id + side>` and the asset ID is `100_000_000 + encoding`.
+
+---
+
 ## Analyze A Single Market
 
 ```bash
@@ -41,22 +69,23 @@ neleus market analyze ETH-PERP --timeframe 15m --lookback-bars 300
 neleus market analyze BTC-PERP --output json
 ```
 
-For HIP-3 markets, prefer the plain asset name plus `--scope hip3 --dex <dex>` when you do not know the exact routed market id. Neleus resolves the market for you and uses the correct Hyperliquid request path internally.
+For HIP-3 markets, use the plain asset name plus `--scope hip3 --dex <dex>` — Neleus resolves the routed market id internally.
 
 The analysis view includes:
 
-- last price
-- percentage change over the analyzed window
+- last price and percentage change over the analyzed window
 - volatility estimate
 - RSI
 - SMA and EMA structure
 - Bollinger bands
-- support and resistance
+- support and resistance levels
 - directional bias and a short trading read
+
+---
 
 ## Run A TA Scan
 
-Use the scanner when you want ranked terminal output instead of one-off analysis.
+Use the scanner when you want ranked terminal output across a set of markets.
 
 ```bash
 neleus market scan --scope perps
@@ -64,17 +93,19 @@ neleus market scan --scope hip3 --dex xyz --search TSLA
 neleus market scan --symbols BTC-PERP,ETH-PERP,SOL-PERP --sort score
 ```
 
-Important flags:
+Flags:
 
 - `--scope perps|hip3|all-perps|spot`
 - `--symbols BTC-PERP,ETH-PERP,...`
 - `--search <text>`
-- `--max-markets <n>`
+- `--max-markets <n>` (default 8)
 - `--limit <n>`
 - `--sort score|change|volatility|rsi`
 - `--timeframe 1m|5m|15m|1h|4h|1d`
 
-The scanner is intentionally bounded. It is designed for fast terminal triage, not exhaustive exchange-wide screening in one command.
+The scanner is bounded by design — use `--symbols` or `--search` to target specific markets.
+
+---
 
 ## Watch A Live Order Book
 
@@ -93,15 +124,18 @@ The live view is backed by the Rust Hyperliquid WebSocket path and shows:
 - total displayed depth
 - order book imbalance
 
-For some HIP-3 markets, Hyperliquid expects a different internal market identifier for books than the display symbol. Neleus handles that automatically and tells you which routed symbol it used in the terminal footer when needed.
+For HIP-3 markets, Neleus resolves the internal routed symbol automatically and shows it in the terminal footer.
 
 Press `Ctrl+C` to stop streaming.
 
+---
+
 ## Hyperliquid API Model
 
-Current Neleus market workflows use Hyperliquid's public market-data surface:
+Current market workflows use Hyperliquid's public market-data surface:
 
 - `POST /info` for market metadata and candles
 - WebSocket subscriptions for live market streams
+- `outcomeMeta` for HIP-4 (testnet endpoint only)
 
 These flows do not require API keys.

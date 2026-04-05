@@ -5,6 +5,8 @@ The CLI is split into two layers:
 - **Global commands** — work without any project; useful for market research
 - **Project commands** — operate on a directory containing `neleus.toml`
 
+Running `neleus` with no arguments in a terminal opens the **interactive REPL**. In non-interactive contexts (scripts, pipes, CI) it prints help instead.
+
 ---
 
 ## Global Commands
@@ -14,10 +16,34 @@ The CLI is split into two layers:
 | `neleus about` | Show branding, links, and a short command guide |
 | `neleus version` | Show the installed version |
 | `neleus market search <query>` | Find markets by name. Supports `--scope` and `--dex` for HIP-3 |
-| `neleus market list` | Show market catalogs. `--scope`: `perps`, `hip3`, `spot`, `all-perps` |
-| `neleus market analyze <symbol>` | Single-market technical analysis with TA indicators. Supports `--scope`, `--dex`, `--timeframe`, `--lookback-bars` |
+| `neleus market list` | Show market catalogs. `--scope`: `perps`, `hip3`, `spot`, `all-perps`, `hip4` |
+| `neleus market analyze <symbol>` | Single-market technical analysis. Supports `--scope`, `--dex`, `--timeframe`, `--lookback-bars` |
 | `neleus market scan` | Rank a bounded set of markets by composite TA score. Supports `--scope`, `--symbols`, `--sort`, `--max-markets` |
 | `neleus market book <symbol>` | Stream a live L2 order book in the terminal. Works with HIP-3 routed symbols |
+
+### HIP-4 Outcome Markets
+
+HIP-4 binary outcome markets are browsable on testnet:
+
+```bash
+neleus market list --scope hip4 --testnet
+```
+
+`--testnet` is required; calling without it raises an error.
+
+---
+
+## Interactive REPL
+
+Running `neleus` with no subcommand in a terminal launches an interactive session:
+
+```
+neleus > market list --scope perps
+neleus > market analyze BTC-PERP
+neleus > exit
+```
+
+Type `--help` at the REPL prompt to see all available commands. Type `exit` or press `Ctrl+D` to quit. The REPL is disabled in non-TTY contexts — scripts and pipes get the help text instead.
 
 ---
 
@@ -112,6 +138,7 @@ neleus run --mode daemon --strategy momentum --live
 ## Notes
 
 - All market commands default to Hyperliquid mainnet. Use `--testnet` when needed.
-- `--live` requires `HYPERLIQUID_SIGNER_PRIVATE_KEY` in `.env` or the shell environment. Without it, the command exits with a clear error message.
-- The TA scanner is intentionally bounded with `--max-markets` to keep the terminal responsive. Use `--symbols` or `--search` to target specific markets.
+- `neleus market list --scope hip4` requires `--testnet`. Calling without it raises `ValueError`.
+- `--live` requires `HYPERLIQUID_SIGNER_PRIVATE_KEY` in `.env` or the shell environment.
+- The TA scanner is bounded with `--max-markets` to keep the terminal responsive. Use `--symbols` or `--search` to target specific markets.
 - `neleus db status` masks the password portion of the DSN in its output.

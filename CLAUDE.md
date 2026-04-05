@@ -177,6 +177,34 @@ Schema is auto-initialised on first connection (`TradeMonitor` constructor + `Ti
 
 ---
 
+## Documentation
+
+User-facing docs live in `docs/` and are built with MkDocs Material.
+
+| File | What it covers |
+|---|---|
+| `docs/index.md` | Landing page, feature table, product scope |
+| `docs/getting-started/installation.md` | Build steps, venv setup, Apple Silicon fix |
+| `docs/getting-started/quickstart.md` | Common CLI workflows end-to-end |
+| `docs/cli/overview.md` | All commands, flags, and REPL behaviour |
+| `docs/cli/market.md` | Market scopes, HIP-3/HIP-4 details, TA scan |
+| `docs/projects.md` | Project scaffolding and runtime |
+| `docs/strategy-writing.md` | Strategy API |
+| `docs/configuration.md` | `neleus.toml` reference |
+| `docs/troubleshooting.md` | Common errors and fixes |
+
+The site is **auto-deployed to GitHub Pages** on every push to `main` via `.github/workflows/deploy-docs.yml`. No manual step needed.
+
+To run locally:
+```bash
+pip install -r docs/requirements.txt
+mkdocs serve
+```
+
+**When to update docs:** any time a new CLI flag, command, scope, or Python API is added or changed, update the relevant file above. Keep `docs/getting-started/installation.md` in sync with the build commands in this file.
+
+---
+
 ## Common mistakes to avoid
 
 - **Do not put computation in Python.** If it's more than a format call or a thin dispatch, it belongs in a Rust crate.

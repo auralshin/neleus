@@ -20,11 +20,11 @@
 <div class="feature-grid">
   <div class="feature-card">
     <h3>No-project market tools</h3>
-    <p>Search, list, analyze, scan, and monitor Hyperliquid markets directly from the CLI.</p>
+    <p>Search, list, analyze, scan, and monitor Hyperliquid markets directly from the CLI — perps, spot, HIP-3, and HIP-4 outcome markets.</p>
   </div>
   <div class="feature-card">
     <h3>Rust-backed market core</h3>
-    <p>REST and WebSocket paths are driven by the Rust Hyperliquid adapter, then exposed to Python and the CLI.</p>
+    <p>All market data, execution, and backtesting logic lives in Rust. Python is the CLI and interactive surface only.</p>
   </div>
   <div class="feature-card">
     <h3>Python strategy workflow</h3>
@@ -32,7 +32,7 @@
   </div>
   <div class="feature-card">
     <h3>Terminal-first UX</h3>
-    <p>Rich dashboards, ranked scans, live order book views, and concise command-driven workflows.</p>
+    <p>Rich dashboards, ranked scans, live order book views, interactive REPL, and concise command-driven workflows.</p>
   </div>
 </div>
 
@@ -40,17 +40,22 @@
 
 | Workflow | Command | Result |
 | --- | --- | --- |
-| Search markets | `neleus market search BTC` | Find matching spot, default perp, or HIP-3 markets |
+| Search markets | `neleus market search BTC` | Find matching spot, default perp, HIP-3, or HIP-4 markets |
 | List market catalogs | `neleus market list --scope hip3 --dex xyz` | View market groups with counts and metadata |
-| Analyze a market | `neleus market analyze GAS --scope hip3 --dex flx` | Get RSI, trend, levels, volatility, and a directional read without typing the exact routed market id |
+| List outcome markets | `neleus market list --scope hip4 --testnet` | Browse HIP-4 binary outcome markets (testnet) |
+| Analyze a market | `neleus market analyze GAS --scope hip3 --dex flx` | Get RSI, trend, levels, volatility, and a directional read |
 | Scan setups | `neleus market scan --scope perps` | Rank a bounded market set by conviction-style TA score |
-| Stream live depth | `neleus market book flx:GAS-PERP` | Watch a live Hyperliquid L2 order book in the terminal, even when Hyperliquid needs an internal routed symbol |
+| Stream live depth | `neleus market book BTC-PERP` | Watch a live Hyperliquid L2 order book in the terminal |
 | Scaffold a project | `neleus new my_strategy_project` | Generate a Python strategy project wired to the Rust core |
+| Interactive REPL | `neleus` (in a terminal) | Launch an interactive session with history and tab completion |
 
 ## Product Scope
 
 Implemented now:
+
 - market search, list, analysis, scanning, and live order book monitoring
+- HIP-4 outcome market browsing (testnet)
+- interactive REPL when no subcommand is given in a terminal
 - project scaffolding for Python strategies
 - backtesting
 - one-shot and daemon strategy runtimes
@@ -58,6 +63,7 @@ Implemented now:
 - database schema inspection and initialization through `neleus db status` and `neleus db init`
 
 Not implemented yet:
+
 - a dedicated `neleus trade` command separate from the current runtime/core APIs
 - broader live operations tooling beyond the current trade-monitoring path
 
